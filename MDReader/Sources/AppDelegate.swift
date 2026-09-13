@@ -26,6 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Stay resident so re-opening files is instant.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    @objc func openRepository(_ sender: Any?) {
+        NSWorkspace.shared.open(URL(string: "https://github.com/\(GitHubFeedback.owner)/\(GitHubFeedback.repo)")!)
+    }
+
     @objc func makeDefaultViewer(_ sender: Any?) {
         DefaultHandler.makeDefault { error in
             if let error {

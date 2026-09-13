@@ -81,6 +81,16 @@ enum MenuBuilder {
         main.addItem(submenu(window, title: "Window"))
         NSApp.windowsMenu = window
 
+        // MARK: Help
+        let help = NSMenu(title: "Help")
+        help.addItem(withTitle: "Send Feedback…", action: #selector(DocumentWindowController.sendFeedback(_:)), keyEquivalent: "")
+        help.addItem(withTitle: "Report a Bug…", action: #selector(DocumentWindowController.reportBug(_:)), keyEquivalent: "")
+        help.addItem(withTitle: "Suggest an Idea…", action: #selector(DocumentWindowController.suggestIdea(_:)), keyEquivalent: "")
+        help.addItem(.separator())
+        help.addItem(withTitle: "MD Reader on GitHub", action: #selector(AppDelegate.openRepository(_:)), keyEquivalent: "")
+        main.addItem(submenu(help, title: "Help"))
+        NSApp.helpMenu = help
+
         return main
     }
 
