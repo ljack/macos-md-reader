@@ -4,3 +4,4 @@ build/
 xcuserdata/
 test.md
 .claude/
+MDReader/Info.plist
