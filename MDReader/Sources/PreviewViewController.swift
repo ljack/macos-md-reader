@@ -1,0 +1,187 @@
+import AppKit
+import WebKit
+
+final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUIDelegate {
+    private unowned let document: MarkdownDocument
+    private(set) var webView: WKWebView!
+    private var findBar: FindBar!
+    private var pageLoaded = false
+    private var updateQueued = false
+
+    init(document: MarkdownDocument) {
+        self.document = document
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    // MARK: View
+
+    override func loadView() {
+        let config = WKWebViewConfiguration()
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        config.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
+
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 840), configuration: config)
+        web.navigationDelegate = self
+        web.uiDelegate = self
+        web.setValue(false, forKey: "drawsBackground")
+        web.allowsMagnification = true
+        web.allowsBackForwardNavigationGestures = false
+        web.pageZoom = Zoom.current
+        web.translatesAutoresizingMaskIntoConstraints = false
+        webView = web
+
+        let container = NSView(frame: web.frame)
+        container.addSubview(web)
+
+        let bar = FindBar(webView: web)
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.isHidden = true
+        container.addSubview(bar)
+        findBar = bar
+
+        NSLayoutConstraint.activate([
+            web.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            web.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            web.topAnchor.constraint(equalTo: container.topAnchor),
+            web.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            bar.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+            bar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -18),
+        ])
+        view = container
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        NotificationCenter.default.addObserver(self, selector: #selector(zoomChanged), name: Zoom.changed, object: nil)
+        loadFullPage()
+    }
+
+    // MARK: Rendering
+
+    private func loadFullPage() {
+        pageLoaded = false
+        let result = MarkdownRenderer.render(document.text)
+        let page = HTMLTemplate.page(body: result.html)
+        webView.loadHTMLString(page, baseURL: document.fileURL?.deletingLastPathComponent())
+    }
+
+    private func pushUpdate() {
+        guard pageLoaded else { updateQueued = true; return }
+        let result = MarkdownRenderer.render(document.text)
+        guard let data = try? JSONSerialization.data(withJSONObject: result.html, options: [.fragmentsAllowed]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.__md && window.__md.update(\(json));") { _, _ in }
+    }
+
+    /// Called by the document after it re-read the file.
+    func contentDidChange(fullReload: Bool) {
+        if fullReload { loadFullPage() } else { pushUpdate() }
+    }
+
+    // MARK: Actions (responder chain)
+
+    @objc func reloadDocument(_ sender: Any?) {
+        if !document.reloadFromDisk(force: true) { loadFullPage() }
+    }
+
+    @objc func zoomIn(_ sender: Any?) { Zoom.step(+1) }
+    @objc func zoomOut(_ sender: Any?) { Zoom.step(-1) }
+    @objc func actualSize(_ sender: Any?) { Zoom.reset() }
+
+    @objc private func zoomChanged() {
+        webView.pageZoom = Zoom.current
+    }
+
+    @objc func showFind(_ sender: Any?) { findBar.show() }
+    @objc func findNext(_ sender: Any?) { findBar.find(backwards: false) }
+    @objc func findPrevious(_ sender: Any?) { findBar.find(backwards: true) }
+
+    // MARK: WKNavigationDelegate
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        pageLoaded = true
+        if updateQueued { updateQueued = false; pushUpdate() }
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard navigationAction.navigationType == .linkActivated,
+              let url = navigationAction.request.url else {
+            decisionHandler(.allow)
+            return
+        }
+
+        // In-page anchors resolve against the base (directory) URL.
+        if url.isFileURL, url.fragment != nil, var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            comps.fragment = nil
+            if let base = document.fileURL?.deletingLastPathComponent(),
+               comps.url?.standardizedFileURL.path == base.standardizedFileURL.path {
+                decisionHandler(.allow)
+                return
+            }
+        }
+
+        decisionHandler(.cancel)
+        if url.isFileURL {
+            if Self.isMarkdown(url) {
+                NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
+                    if let error { NSAlert(error: error).runModal() }
+                }
+            } else {
+                NSWorkspace.shared.open(url)
+            }
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    // MARK: WKUIDelegate (target=_blank etc.)
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url { NSWorkspace.shared.open(url) }
+        return nil
+    }
+
+    private static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkdn", "mkd", "mdwn", "mdtxt", "mdtext", "txt"]
+
+    private static func isMarkdown(_ url: URL) -> Bool {
+        markdownExtensions.contains(url.pathExtension.lowercased())
+    }
+}
+
+// MARK: - Zoom
+
+enum Zoom {
+    static let changed = Notification.Name("MDReader.zoomChanged")
+    private static let key = "pageZoom"
+    private static let levels: [CGFloat] = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
+
+    static var current: CGFloat {
+        let v = UserDefaults.standard.double(forKey: key)
+        return v > 0 ? CGFloat(v) : 1.0
+    }
+
+    static func step(_ direction: Int) {
+        let cur = current
+        let idx = levels.firstIndex(where: { abs($0 - cur) < 0.01 }) ?? 5
+        let next = levels[max(0, min(levels.count - 1, idx + direction))]
+        set(next)
+    }
+
+    static func reset() { set(1.0) }
+
+    private static func set(_ value: CGFloat) {
+        UserDefaults.standard.set(Double(value), forKey: key)
+        NotificationCenter.default.post(name: changed, object: nil)
+    }
+}
