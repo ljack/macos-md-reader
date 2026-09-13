@@ -71,6 +71,9 @@ targets:
     postBuildScripts:
       - name: Stamp git provenance into Info.plist
         shell: /bin/zsh
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
         script: |
           "$SRCROOT/Scripts/stamp-build.sh" "$TARGET_BUILD_DIR/$INFOPLIST_PATH"
   MDReaderTests:

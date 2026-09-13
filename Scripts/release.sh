@@ -15,6 +15,10 @@ APP="build/MD Reader.app"
 codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | tail -1
 codesign -dvv "$APP" 2>&1 | grep -E "^Authority=Developer ID" | head -1 || { echo "not Developer ID signed"; exit 1 }
 
+STAMP=$(/usr/libexec/PlistBuddy -c "Print :GitCommit" "$APP/Contents/Info.plist" 2>/dev/null || true)
+[[ "$STAMP" == "$(git rev-parse --short=12 HEAD)" ]] || { echo "provenance stamp '$STAMP' does not match HEAD; refusing to release"; exit 1 }
+echo "provenance: $STAMP"
+
 ZIP="build/MD-Reader-$VERSION.zip"
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
