@@ -4,6 +4,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var statusItemController: StatusItemController?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // File ▸ Open Recent is AppKit's own submenu; lift its default cap of 10 entries.
+        UserDefaults.standard.register(defaults: ["NSRecentDocumentsLimit": 100])
         NSApp.mainMenu = MenuBuilder.makeMainMenu()
         // Warm the parser + template cache before the first document arrives.
         MarkdownRenderer.warmUp()
@@ -27,6 +29,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Stay resident so re-opening files is instant.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Collects every document window into one tabbed window.
+    @objc func mergeAllWindows(_ sender: Any?) {
+        WindowActions.mergeAll()
+    }
+
+    @objc func closeAllWindows(_ sender: Any?) {
+        WindowActions.closeAll()
+    }
 
     @objc func openRepository(_ sender: Any?) {
         NSWorkspace.shared.open(URL(string: "https://github.com/\(GitHubFeedback.owner)/\(GitHubFeedback.repo)")!)

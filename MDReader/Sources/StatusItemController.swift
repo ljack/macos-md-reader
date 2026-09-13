@@ -87,6 +87,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+        let merge = menu.addItem(withTitle: "Merge All Windows", action: #selector(AppDelegate.mergeAllWindows(_:)), keyEquivalent: "")
+        merge.target = NSApp.delegate
+        merge.isEnabled = WindowActions.documentWindows.count > 1
+        let closeAll = menu.addItem(withTitle: "Close All Windows", action: #selector(AppDelegate.closeAllWindows(_:)), keyEquivalent: "")
+        closeAll.target = NSApp.delegate
+        closeAll.isEnabled = !WindowActions.documentWindows.isEmpty
+
+        menu.addItem(.separator())
         let toggle = menu.addItem(withTitle: "Show in Menu Bar", action: #selector(toggleVisibility(_:)), keyEquivalent: "")
         toggle.target = self
         toggle.state = Self.isEnabled ? .on : .off

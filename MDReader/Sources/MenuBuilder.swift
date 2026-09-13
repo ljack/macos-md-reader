@@ -1,7 +1,6 @@
 import AppKit
 
 enum MenuBuilder {
-    private static let recentMenuDelegate = RecentDocumentsMenuDelegate()
     private static let openWithMenuDelegate = OpenWithMenuDelegate()
 
     static func makeMainMenu() -> NSMenu {
@@ -34,12 +33,11 @@ enum MenuBuilder {
         // MARK: File
         let file = NSMenu(title: "File")
         file.addItem(withTitle: "Open…", action: #selector(NSDocumentController.openDocument(_:)), keyEquivalent: "o")
-        let recent = file.addItem(withTitle: "Open Recent", action: nil, keyEquivalent: "")
-        let recentMenu = NSMenu(title: "Open Recent")
-        recentMenu.delegate = recentMenuDelegate
-        recent.submenu = recentMenu
+        // AppKit inserts its own "Open Recent" submenu after "Open…" automatically.
         file.addItem(.separator())
         file.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let closeAll = file.addItem(withTitle: "Close All Windows", action: #selector(AppDelegate.closeAllWindows(_:)), keyEquivalent: "W")
+        closeAll.keyEquivalentModifierMask = [.command, .shift]
         file.addItem(.separator())
         file.addItem(withTitle: "Reveal in Finder", action: #selector(MarkdownDocument.revealInFinder(_:)), keyEquivalent: "")
         file.addItem(withTitle: "Open Folder in Finder", action: #selector(MarkdownDocument.openFolderInFinder(_:)), keyEquivalent: "")
@@ -85,6 +83,16 @@ enum MenuBuilder {
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         window.addItem(.separator())
+        let prevTab = window.addItem(withTitle: "Show Previous Tab",
+                                     action: #selector(NSWindow.selectPreviousTab(_:)), keyEquivalent: "\t")
+        prevTab.keyEquivalentModifierMask = [.control, .shift]
+        let nextTab = window.addItem(withTitle: "Show Next Tab",
+                                     action: #selector(NSWindow.selectNextTab(_:)), keyEquivalent: "\t")
+        nextTab.keyEquivalentModifierMask = [.control]
+        window.addItem(withTitle: "Move Tab to New Window", action: #selector(NSWindow.moveTabToNewWindow(_:)), keyEquivalent: "")
+        let merge = window.addItem(withTitle: "Merge All Windows", action: #selector(AppDelegate.mergeAllWindows(_:)), keyEquivalent: "m")
+        merge.keyEquivalentModifierMask = [.command, .option]
+        window.addItem(.separator())
         window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         main.addItem(submenu(window, title: "Window"))
         NSApp.windowsMenu = window
@@ -106,34 +114,6 @@ enum MenuBuilder {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.submenu = menu
         return item
-    }
-}
-
-// MARK: - Open Recent
-
-final class RecentDocumentsMenuDelegate: NSObject, NSMenuDelegate {
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-        let urls = NSDocumentController.shared.recentDocumentURLs
-        for url in urls {
-            let item = NSMenuItem(title: url.lastPathComponent, action: #selector(openRecent(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = url
-            item.image = MenuIcons.icon(forFile: url.path)
-            item.toolTip = url.path
-            menu.addItem(item)
-        }
-        if !urls.isEmpty { menu.addItem(.separator()) }
-        let clear = menu.addItem(withTitle: "Clear Menu",
-                                 action: #selector(NSDocumentController.clearRecentDocuments(_:)), keyEquivalent: "")
-        clear.isEnabled = !urls.isEmpty
-    }
-
-    @objc private func openRecent(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL else { return }
-        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
-            if let error { NSAlert(error: error).runModal() }
-        }
     }
 }
 
