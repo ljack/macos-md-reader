@@ -7,7 +7,7 @@ cask "md-reader" do
   desc "Fast native Markdown viewer for macOS"
   homepage "https://github.com/ljack/macos-md-reader"
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "MD Reader.app"
 
