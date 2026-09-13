@@ -29,7 +29,10 @@ final class MarkdownDocument: NSDocument {
     // MARK: Live reload
 
     override var fileURL: URL? {
-        didSet { startWatching() }
+        didSet {
+            startWatching()
+            if let url = fileURL { RecentFilesStore.record(url) }
+        }
     }
 
     private func startWatching() {
@@ -71,6 +74,32 @@ final class MarkdownDocument: NSDocument {
     @objc func revealInFinder(_ sender: Any?) {
         guard let url = fileURL else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc func openFolderInFinder(_ sender: Any?) {
+        guard let dir = fileURL?.deletingLastPathComponent() else { return }
+        NSWorkspace.shared.open(dir)
+    }
+
+    @objc func openInTerminal(_ sender: Any?) {
+        openDirectory(inAppWithBundleID: "com.apple.Terminal")
+    }
+
+    @objc func openInITerm(_ sender: Any?) {
+        openDirectory(inAppWithBundleID: "com.googlecode.iterm2")
+    }
+
+    static var iTermURL: URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2")
+    }
+
+    /// Terminal and iTerm2 both open a new window cd'd to a directory handed to them.
+    private func openDirectory(inAppWithBundleID bundleID: String) {
+        guard let dir = fileURL?.deletingLastPathComponent(),
+              let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return }
+        NSWorkspace.shared.open([dir], withApplicationAt: app, configuration: .init()) { _, error in
+            if let error { DispatchQueue.main.async { NSAlert(error: error).runModal() } }
+        }
     }
 
     override func printOperation(withSettings printSettings: [NSPrintInfo.AttributeKey: Any]) throws -> NSPrintOperation {

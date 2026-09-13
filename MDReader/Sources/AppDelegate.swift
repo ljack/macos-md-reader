@@ -1,6 +1,7 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private(set) var statusItemController: StatusItemController?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MenuBuilder.makeMainMenu()
@@ -10,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        statusItemController = StatusItemController()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             DefaultHandler.offerToBecomeDefaultIfNeeded()
         }
@@ -25,6 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Stay resident so re-opening files is instant.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    @objc func toggleStatusItem(_ sender: Any?) {
+        statusItemController?.toggleVisibility(sender)
+        (sender as? NSMenuItem)?.state = StatusItemController.isEnabled ? .on : .off
+    }
 
     @objc func makeDefaultViewer(_ sender: Any?) {
         DefaultHandler.makeDefault { error in
