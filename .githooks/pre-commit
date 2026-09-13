@@ -1,0 +1,9 @@
+#!/bin/zsh
+# Fast checks only: no worktree/build junk staged, project.yml still valid.
+cd "$(git rev-parse --show-toplevel)"
+if git diff --cached --name-only | grep -qE '^(build/|\.claude/|.*\.xcodeproj/)'; then
+  echo "pre-commit: refusing to commit build/, .claude/ or .xcodeproj files"; exit 1
+fi
+if git diff --cached --name-only | grep -q '^project.yml$'; then
+  xcodegen dump --type json >/dev/null 2>&1 || { echo "pre-commit: project.yml does not parse"; exit 1 }
+fi

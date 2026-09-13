@@ -1,0 +1,94 @@
+# AGENTS.md — working on MD Reader as an AI agent
+
+Read this before touching the repo. It is the contract between humans and agents for this project.
+
+## What this is
+
+Native macOS Markdown viewer. AppKit + WebKit, Swift 5 language mode, no SwiftUI, no storyboards.
+Rendering: cmark-gfm (swift-cmark `gfm` branch) → HTML → `WKWebView`. See README "How it works".
+
+## Commands you will use
+
+| Task | Command | Notes |
+|---|---|---|
+| Regenerate Xcode project | `make gen` | `project.yml` is the source of truth. Never edit `MDReader.xcodeproj` (it's gitignored). |
+| Build (Debug) | `make build` | Output filtered to errors/warnings + result. |
+| Unit tests | `make test` | XCTest target `MDReaderTests`, `@testable import MDReader`. |
+| Launch smoke test | `make smoke` | Opens `Samples/demo.md`, checks the process stays alive, quits it. |
+| Full local CI | `make ci` | build + test + smoke. This is what `pre-push` runs. |
+| Install to /Applications | `make install` | Release config, Developer ID signed, not notarized. |
+| Bump version | `make bump V=0.2.0` | Semver only; commits `project.yml`. Requires clean tree. |
+| Release | `make release` | Clean tree required. Signs, notarizes, staples, creates GitHub release `vX.Y.Z` at HEAD, updates cask sha in `Casks/` and in the tap `ljack/homebrew-tap`. Needs keychain profile `md-reader-notary`. |
+| Enable git hooks | `make hooks` | Sets `core.hooksPath=.githooks`. |
+
+Raw `xcodebuild` if you need it:
+
+```bash
+xcodebuild -scheme MDReader -configuration Debug -derivedDataPath build/DerivedData build
+xcodebuild -scheme MDReader -configuration Debug -derivedDataPath build/DerivedData test
+```
+
+## Definition of done for a change
+
+1. `make ci` is green.
+2. New logic in `MarkdownRenderer`, `FrontMatter`, `RecentFilesStore`, `WindowActions`, `BuildInfo` or anything else without UI has a unit test in `MDReaderTests/`.
+3. UI changes were launched and looked at (screenshot or accessibility inspection), not just compiled.
+4. Commit message: imperative subject ≤ 72 chars, body explains why. Conventional prefixes not required.
+5. Nothing under `build/`, `.claude/` or `*.xcodeproj` is committed (`pre-commit` blocks it).
+
+## Verifying the running app (no human at the keyboard)
+
+Accessibility scripting works on this machine for menus and windows:
+
+```bash
+open -a "build/DerivedData/Build/Products/Debug/MD Reader.app" "$PWD/Samples/demo.md"
+osascript -e 'tell application "System Events" to tell process "MD Reader" to click menu item "Merge All Windows" of menu "Window" of menu bar 1'
+osascript -e 'tell application "System Events" to tell process "MD Reader" to get name of menu items of menu "File" of menu bar 1'
+```
+
+Screenshots: `screencapture -x -l <windowID>` where the window ID comes from `CGWindowListCopyWindowInfo` (see `Scripts/` history, or capture a region with `-R x,y,w,h`). Windows may open on a secondary display with negative y; move them first with System Events.
+
+Status bar menu is `menu bar item 1 of menu bar 2` of the process.
+
+## Provenance: which source built this binary?
+
+Every build runs `Scripts/stamp-build.sh` as a post-build phase and writes into `Info.plist`:
+
+- `CFBundleVersion` = `git rev-list --count HEAD` (monotonic build number)
+- `GitCommit` = short SHA, suffixed `-dirty` if the tree had uncommitted tracked changes
+- `GitBranch`, `BuildDate` (UTC)
+
+Surfaces: **About MD Reader** (commit is a link to GitHub), **Copy Build Info** in the app menu, and the feedback sheet's context footer. `Scripts/release.sh` refuses dirty trees, tags the exact commit via `gh release create --target`, and puts the commit and the zip's sha256 in the release notes. The cask pins that sha256. Chain: cask sha → release asset → tag → commit → source.
+
+To check an installed copy:
+
+```bash
+/usr/libexec/PlistBuddy -c "Print :GitCommit" "/Applications/MD Reader.app/Contents/Info.plist"
+```
+
+## Gotchas learned the hard way
+
+- **Same bundle id, multiple copies.** Launch Services picks any registered copy of `fi.jarkkolietolahti.MDReader`, including ones in `build/DerivedData`. `Scripts/build.sh` deletes the DerivedData copy after each Release build. If Finder opens the wrong copy: `lsregister -f "/Applications/MD Reader.app"`.
+- **AppKit auto-injects menu items.** File ▸ Open Recent, and once tabs exist: Close Window / Close Tab / Close Other Tabs / Close All (⌥-alternate). Don't add duplicates; name yours differently (we use "Close All Windows").
+- **Open Recent cap** is `NSRecentDocumentsLimit`, registered to 100 in `AppDelegate`.
+- **Product name has a space** ("MD Reader"). Module name is `MDReader`. Test target needs explicit `TEST_HOST`.
+- **User script sandboxing is off** (`ENABLE_USER_SCRIPT_SANDBOXING: NO`) so the stamp script can write the plist.
+- **Keychain writes and public-repo creation** may be blocked for agents by policy. Ask the human to run those commands with `! cmd` in the Claude Code prompt.
+- **Notarization credentials** live in the keychain under profile `md-reader-notary`. Never print them.
+- **macOS `make` is 3.81**: no `.SHELLFLAGS`; recipes use `set -o pipefail;` inline.
+
+## Where things live
+
+```
+MDReader/Sources/      app code (one type per file)
+MDReader/Resources/    preview.css / preview.js / highlight.js, Assets.xcassets
+MDReaderTests/         XCTest
+Samples/demo.md        rendering fixture used by tests and smoke
+Casks/md-reader.rb     Homebrew cask, mirrored to ljack/homebrew-tap by release.sh
+Scripts/               build.sh, release.sh, stamp-build.sh, smoke.sh, bump.sh, gen-icon.swift, xcfilter.sh
+.githooks/             pre-commit (hygiene), pre-push (make ci)
+```
+
+## Roadmap hints
+
+TOC sidebar (inject from headings in `preview.js`, host in an `NSSplitViewController`), Mermaid (bundle mermaid.min.js, render `pre code.language-mermaid`), source/rendered split, Quick Look extension (separate target, sandboxed; renderer must stay UI-free so it can be shared).

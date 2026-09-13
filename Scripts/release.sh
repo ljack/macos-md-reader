@@ -6,6 +6,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 NOTARY_PROFILE="${NOTARY_PROFILE:-md-reader-notary}"
+[[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo "working tree dirty; releases must come from a commit"; exit 1 }
+COMMIT=$(git rev-parse HEAD)
 VERSION=$(sed -n 's/^        CFBundleShortVersionString: "\(.*\)"/\1/p' project.yml)
 [[ -n "$VERSION" ]] || { echo "version not found in project.yml"; exit 1 }
 ./Scripts/build.sh >/dev/null
@@ -32,7 +34,14 @@ if [[ "${1:-}" == "--publish" ]]; then
   REPO=ljack/macos-md-reader
   TAP=ljack/homebrew-tap
   TAG="v$VERSION"
-  gh release create "$TAG" "$ZIP" --repo "$REPO" --title "MD Reader $VERSION" --generate-notes 2>/dev/null \
+  NOTES="Built from commit $COMMIT on $(date -u +%Y-%m-%d).
+
+Provenance: About MD Reader shows the commit; \`Copy Build Info\` copies it.
+
+\`\`\`
+sha256  $SHA  MD-Reader-$VERSION.zip
+\`\`\`"
+  gh release create "$TAG" "$ZIP" --repo "$REPO" --target "$COMMIT" --title "MD Reader $VERSION" --notes "$NOTES" 2>/dev/null \
     || gh release upload "$TAG" "$ZIP" --repo "$REPO" --clobber
   sed -i '' -e "s/^  version \".*\"/  version \"$VERSION\"/" -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" Casks/md-reader.rb
   git add Casks/md-reader.rb && git commit -qm "Release $VERSION" && git push -q

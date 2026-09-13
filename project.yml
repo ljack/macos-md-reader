@@ -63,16 +63,43 @@ targets:
         CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
       configs:
         Release:
           CODE_SIGN_IDENTITY: "Developer ID Application"
           OTHER_CODE_SIGN_FLAGS: "--timestamp"
+    postBuildScripts:
+      - name: Stamp git provenance into Info.plist
+        shell: /bin/zsh
+        script: |
+          "$SRCROOT/Scripts/stamp-build.sh" "$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+  MDReaderTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: MDReaderTests
+    dependencies:
+      - target: MDReader
+    settings:
+      base:
+        SWIFT_VERSION: "5"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: 25C9H9N953
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MD Reader.app/Contents/MacOS/MD Reader"
+        BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
   MDReader:
     build:
       targets:
         MDReader: all
+        MDReaderTests: [test]
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - MDReaderTests
     archive:
       config: Release

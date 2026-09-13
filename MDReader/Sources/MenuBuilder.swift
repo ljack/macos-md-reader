@@ -8,8 +8,8 @@ enum MenuBuilder {
 
         // MARK: App
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About MD Reader",
-                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "About MD Reader", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "Copy Build Info", action: #selector(AppDelegate.copyBuildInfo(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Make Default Markdown Viewer…",
                         action: #selector(AppDelegate.makeDefaultViewer(_:)), keyEquivalent: "")

@@ -31,11 +31,10 @@ struct FeedbackReport {
     var fullBody: String {
         var text = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard includeContext else { return text }
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        let info = BuildInfo.current
         let os = ProcessInfo.processInfo.operatingSystemVersionString
         text += "\n\n---\n"
-        text += "- MD Reader \(version) (\(build))\n"
+        text += "- MD Reader \(info.version) (\(info.build)), commit \(info.commit)\n"
         text += "- \(os)\n"
         if let url = documentURL {
             text += "- Document: `\(url.lastPathComponent)`\n"
