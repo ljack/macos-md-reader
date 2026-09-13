@@ -28,19 +28,41 @@ func render(px: Int) -> Data {
     path.fill()
     NSGraphicsContext.current?.restoreGraphicsState()
 
-    // Background gradient
+    // Background: diagonal indigo gradient
     let gradient = NSGradient(colors: [
-        NSColor(calibratedRed: 0.36, green: 0.49, blue: 1.00, alpha: 1),
-        NSColor(calibratedRed: 0.16, green: 0.24, blue: 0.72, alpha: 1),
+        NSColor(calibratedRed: 0.42, green: 0.55, blue: 1.00, alpha: 1),
+        NSColor(calibratedRed: 0.24, green: 0.33, blue: 0.92, alpha: 1),
+        NSColor(calibratedRed: 0.13, green: 0.17, blue: 0.62, alpha: 1),
     ])!
-    gradient.draw(in: path, angle: -70)
+    gradient.draw(in: path, angle: -60)
 
-    // Subtle top highlight
-    let hl = NSGradient(colors: [NSColor.white.withAlphaComponent(0.22), NSColor.white.withAlphaComponent(0.0)])!
     NSGraphicsContext.current?.saveGraphicsState()
     path.addClip()
-    hl.draw(in: NSRect(x: rect.minX, y: rect.midY, width: rect.width, height: rect.height / 2), angle: 90)
+    // Soft radial glow top-left (no hard edges)
+    let glow = NSGradient(colors: [NSColor.white.withAlphaComponent(0.28), NSColor.white.withAlphaComponent(0.0)])!
+    let glowCenter = NSPoint(x: rect.minX + rect.width * 0.28, y: rect.maxY - rect.height * 0.22)
+    let glowRect = NSRect(x: glowCenter.x - rect.width * 0.9, y: glowCenter.y - rect.width * 0.9,
+                          width: rect.width * 1.8, height: rect.width * 1.8)
+    glow.draw(in: NSBezierPath(ovalIn: glowRect), relativeCenterPosition: .zero)
+    // Faint bottom vignette
+    let vignette = NSGradient(colors: [NSColor.black.withAlphaComponent(0.0), NSColor.black.withAlphaComponent(0.16)])!
+    vignette.draw(in: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height * 0.45), angle: -90)
     NSGraphicsContext.current?.restoreGraphicsState()
+
+    // Inner rim for depth
+    let rim = NSBezierPath(roundedRect: rect.insetBy(dx: s * 0.006, dy: s * 0.006),
+                           xRadius: radius - s * 0.006, yRadius: radius - s * 0.006)
+    rim.lineWidth = s * 0.008
+    NSColor.white.withAlphaComponent(0.18).setStroke()
+    rim.stroke()
+
+    // Glyph shadow
+    NSGraphicsContext.current?.saveGraphicsState()
+    let glyphShadow = NSShadow()
+    glyphShadow.shadowColor = NSColor.black.withAlphaComponent(0.22)
+    glyphShadow.shadowBlurRadius = s * 0.025
+    glyphShadow.shadowOffset = NSSize(width: 0, height: -s * 0.012)
+    glyphShadow.set()
 
     // "M" glyph with down arrow (Markdown logo motif)
     let para = NSMutableParagraphStyle()
@@ -73,6 +95,7 @@ func render(px: Int) -> Data {
     arrow.line(to: NSPoint(x: ax + aw, y: ay - ah / 2 + aw))
     NSColor.white.setStroke()
     arrow.stroke()
+    NSGraphicsContext.current?.restoreGraphicsState()
 
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])!
