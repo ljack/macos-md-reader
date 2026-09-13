@@ -14,6 +14,9 @@ enum MenuBuilder {
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Make Default Markdown Viewer…",
                         action: #selector(AppDelegate.makeDefaultViewer(_:)), keyEquivalent: "")
+        let showStatus = appMenu.addItem(withTitle: "Show in Menu Bar",
+                                         action: #selector(AppDelegate.toggleStatusItem(_:)), keyEquivalent: "")
+        showStatus.state = StatusItemController.isEnabled ? .on : .off
         appMenu.addItem(.separator())
         let services = appMenu.addItem(withTitle: "Services", action: nil, keyEquivalent: "")
         services.submenu = NSMenu()
@@ -39,6 +42,11 @@ enum MenuBuilder {
         file.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         file.addItem(.separator())
         file.addItem(withTitle: "Reveal in Finder", action: #selector(MarkdownDocument.revealInFinder(_:)), keyEquivalent: "")
+        file.addItem(withTitle: "Open Folder in Finder", action: #selector(MarkdownDocument.openFolderInFinder(_:)), keyEquivalent: "")
+        file.addItem(withTitle: "Open in Terminal", action: #selector(MarkdownDocument.openInTerminal(_:)), keyEquivalent: "")
+        if MarkdownDocument.iTermURL != nil {
+            file.addItem(withTitle: "Open in iTerm2", action: #selector(MarkdownDocument.openInITerm(_:)), keyEquivalent: "")
+        }
         let openWith = file.addItem(withTitle: "Open With", action: nil, keyEquivalent: "")
         let openWithMenu = NSMenu(title: "Open With")
         openWithMenu.delegate = openWithMenuDelegate
