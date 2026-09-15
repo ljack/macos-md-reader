@@ -79,7 +79,7 @@ The document is hostile input. Four layers, all with tests: cmark `tagfilter` pl
 
 ## Gotchas learned the hard way
 
-- **Same bundle id, multiple copies.** Launch Services picks any registered copy of `fi.jarkkolietolahti.MDReader`, including ones in `build/DerivedData`. `Scripts/build.sh` deletes the DerivedData copy after each Release build. If Finder opens the wrong copy: `lsregister -f "/Applications/MD Reader.app"`.
+- **Same bundle id, multiple copies.** Launch Services picks any registered copy of `fi.jarkkolietolahti.MDReader`, including ones in `build/DerivedData`. `Scripts/build.sh` deletes the DerivedData copy after each Release build, and `Scripts/smoke.sh` unregisters the copy it launched and re-registers `/Applications/MD Reader.app`. If Finder opens the wrong copy: `lsregister -f "/Applications/MD Reader.app"`.
 - **AppKit auto-injects menu items.** File ▸ Open Recent, and once tabs exist: Close Window / Close Tab / Close Other Tabs / Close All (⌥-alternate). Don't add duplicates; name yours differently (we use "Close All Windows").
 - **Open Recent cap** is `NSRecentDocumentsLimit`, registered to 100 in `AppDelegate`.
 - **Product name has a space** ("MD Reader"). Module name is `MDReader`. Test target needs explicit `TEST_HOST`.

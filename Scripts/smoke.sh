@@ -17,5 +17,10 @@ if grep -qiE "crash|fatal error|exception" "$LOG"; then echo "smoke: errors in l
 osascript -e 'tell application "MD Reader" to quit' >/dev/null 2>&1 || kill $PID
 sleep 0.5
 kill -0 $PID 2>/dev/null && { echo "smoke: app did not quit"; kill -9 $PID; exit 1 }
+# Launching registered this copy with Launch Services, which then resolves the bundle id to any copy,
+# including this one (Spotlight/Finder open it, Debug builds fail with -50). Undo that.
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+"$LSREG" -u "$PWD/$APP" >/dev/null 2>&1 || "$LSREG" -u "$APP" >/dev/null 2>&1 || true
+[[ -d "/Applications/MD Reader.app" ]] && "$LSREG" -f "/Applications/MD Reader.app" >/dev/null 2>&1
 echo "smoke: ok (build $STAMP, process ran ${WINDOWS:+and registered }cleanly)"
 rm -f "$LOG"
