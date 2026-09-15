@@ -58,13 +58,44 @@ final class WebViewHardeningTests: XCTestCase {
     func testOwnScriptRunsAndRelativeImageLoads() throws {
         load(body: "<p>hi</p><img id=\"i\" src=\"pixel.png\">")
         XCTAssertEqual(try eval("typeof window.__md.update") as? String, "function")
+        XCTAssertEqual(try imageWidth("i"), 1, "relative image next to the document must load (base \(dir.path))")
+    }
+
+    /// Same check from directories that differ in symlink resolution and location, so a
+    /// platform-specific sandbox quirk shows up with a name rather than as a bare failure.
+    func testRelativeImageLoadsFromVariousBaseDirectories() throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let bases: [(String, URL)] = [
+            ("temporaryDirectory", tmp),
+            ("temporaryDirectory resolved", tmp.resolvingSymlinksInPath()),
+            ("cachesDirectory", caches),
+        ]
+        var failures: [String] = []
+        for (name, root) in bases {
+            let base = root.appendingPathComponent("MDReaderImageTest-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: base) }
+            try Self.onePixelPNG.write(to: base.appendingPathComponent("pixel.png"))
+            let done = expectation(description: "page loaded \(name)")
+            delegate.onFinish = { done.fulfill() }
+            webView.loadHTMLString(HTMLTemplate.page(body: "<img id=\"i\" src=\"pixel.png\">"), baseURL: base)
+            wait(for: [done], timeout: 10)
+            let width = try imageWidth("i")
+            let complete = try eval("document.getElementById('i').complete") as? Bool ?? false
+            if width != 1 { failures.append("\(name) \(base.path): naturalWidth=\(width) complete=\(complete)") }
+        }
+        XCTAssertTrue(failures.isEmpty, failures.joined(separator: "; "))
+    }
+
+    private func imageWidth(_ id: String) throws -> Int {
         var width = 0
-        for _ in 0..<20 {
-            width = (try eval("document.getElementById('i').naturalWidth") as? Int) ?? 0
+        for _ in 0..<32 {
+            width = (try eval("document.getElementById('\(id)').naturalWidth") as? Int) ?? 0
             if width > 0 { break }
             settle(0.25)
         }
-        XCTAssertEqual(width, 1, "relative image next to the document must load")
+        return width
     }
 
     func testDocumentScriptsDoNotRun() throws {
@@ -154,13 +185,7 @@ final class WebViewHardeningTests: XCTestCase {
         settle(0.5)
         // CSP-blocked images report complete with zero size immediately; the local one still loads.
         XCTAssertEqual(try eval("document.getElementById('r').naturalWidth") as? Int, 0)
-        var width = 0
-        for _ in 0..<20 {
-            width = (try eval("document.getElementById('l').naturalWidth") as? Int) ?? 0
-            if width > 0 { break }
-            settle(0.25)
-        }
-        XCTAssertEqual(width, 1)
+        XCTAssertEqual(try imageWidth("l"), 1, "local image must still load (base \(dir.path))")
     }
 
     /// 1×1 transparent PNG.
