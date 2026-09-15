@@ -59,6 +59,7 @@ sha256  $SHA  MD-Reader-$VERSION.zip
   if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
     echo "release $TAG already exists; bump the version (make bump V=...) instead of re-publishing"; exit 1
   fi
+  git push -q --no-verify origin HEAD  # --target must exist on GitHub
   gh release create "$TAG" "$ZIP" --repo "$REPO" --target "$COMMIT" --title "MD Reader $VERSION" --notes "$NOTES"
   sed -i '' -e "s/^  version \".*\"/  version \"$VERSION\"/" -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" Casks/md-reader.rb
   git add Casks/md-reader.rb && git commit -qm "Release $VERSION" && git push -q --no-verify
