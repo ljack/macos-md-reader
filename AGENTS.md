@@ -32,7 +32,7 @@ xcodebuild -scheme MDReader -configuration Debug -derivedDataPath build/DerivedD
 
 1. `make ci` is green.
 2. New logic in `MarkdownRenderer`, `FrontMatter`, `RecentFilesStore`, `WindowActions`, `BuildInfo`, `LinkPolicy` or anything else without UI has a unit test in `MDReaderTests/`.
-   Anything touching `HTMLTemplate`, `PreviewWebView`, `LinkPolicy` or the WebKit delegates is security-relevant: keep `WebViewHardeningTests` and `LinkPolicyTests` green, open `Samples/hostile.md`, and update `SECURITY.md` if a promise changes.
+   Anything touching `HTMLTemplate`, `PreviewWebView`, `DocumentResourceHandler`, `LinkPolicy` or the WebKit delegates is security-relevant: keep `WebViewHardeningTests` and `LinkPolicyTests` green, open `Samples/hostile.md`, and update `SECURITY.md` if a promise changes.
 3. UI changes were launched and looked at (screenshot or accessibility inspection), not just compiled.
 4. Commit message: imperative subject ≤ 72 chars, body explains why. Conventional prefixes not required.
 5. Nothing under `build/`, `.claude/` or `*.xcodeproj` is committed (`pre-commit` blocks it).
@@ -69,7 +69,7 @@ To check an installed copy:
 
 ## Security model (short)
 
-The document is hostile input. Three layers, all with tests: cmark `tagfilter`, a per-load CSP nonce in `HTMLTemplate` (no document scripts, no fetch, no frames, no forms), and `LinkPolicy` deciding what a click may open (web/mail → default handler, `.md` → new document, images/PDF/text → their app, anything launchable → only revealed in Finder; non-click navigations dropped). Do not add `allowFileAccessFromFileURLs`, `allowUniversalAccessFromFileURLs`, `'unsafe-inline'` for scripts, or an `NSWorkspace.open` that bypasses `LinkPolicy`. Full write-up: `SECURITY.md`.
+The document is hostile input. Four layers, all with tests: cmark `tagfilter`; a per-load CSP nonce in `HTMLTemplate` (no document scripts, no fetch, no frames, no forms, no `file:`); the page is loaded with an `mdres:///<dir>/` base and `DocumentResourceHandler` (`PreviewWebView.swift`) serves only image/media/font files to the web process, which has no file access of its own; and `LinkPolicy` deciding what a click may open (web/mail → default handler, `.md` → new document, images/PDF/text → their app, anything launchable → only revealed in Finder; non-click navigations dropped). Do not add `allowFileAccessFromFileURLs`, `allowUniversalAccessFromFileURLs`, `file:` to the CSP, `'unsafe-inline'` for scripts, or an `NSWorkspace.open` that bypasses `LinkPolicy`. Note the WebContent sandbox: a `file:` base URL only ever worked for the temp dir, which is why the tests load images from `~/Library/Caches` and the build dir too. Full write-up: `SECURITY.md`.
 
 ## Dependencies
 

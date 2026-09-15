@@ -22,24 +22,59 @@ final class LinkPolicyTests: XCTestCase {
         return url
     }
 
-    private func click(_ url: URL) -> LinkPolicy.Action { LinkPolicy.action(for: url, isLinkClick: true, base: dir) }
+    /// What the page was loaded with: `mdres:///<dir>/`.
+    private var base: URL { PreviewWebView.baseURL(forDirectory: dir)! }
+    private func click(_ url: URL) -> LinkPolicy.Action { LinkPolicy.action(for: url, isLinkClick: true, base: base) }
+    /// A relative href as WebKit resolves it inside the page.
+    private func href(_ relative: String) -> URL { URL(string: relative, relativeTo: base)!.absoluteURL }
+
+    // MARK: Base URL
+
+    func testBaseURLUsesResourceScheme() {
+        XCTAssertEqual(base.scheme, "mdres")
+        XCTAssertTrue(base.absoluteString.hasSuffix("/"))
+        XCTAssertEqual(PreviewWebView.fileURL(for: href("pic.png"))?.path, dir.appendingPathComponent("pic.png").path)
+        XCTAssertEqual(PreviewWebView.fileURL(for: href("../up.png"))?.path, dir.deletingLastPathComponent().appendingPathComponent("up.png").path)
+        XCTAssertNil(PreviewWebView.fileURL(for: URL(string: "https://x/y.png")!))
+        XCTAssertNil(PreviewWebView.baseURL(forDirectory: nil))
+    }
 
     // MARK: Initial load and anchors
 
     func testInitialLoadOfBaseDirectoryIsAllowed() {
-        XCTAssertEqual(LinkPolicy.action(for: dir, isLinkClick: false, base: dir), .allowInPage)
+        XCTAssertEqual(LinkPolicy.action(for: base, isLinkClick: false, base: base), .allowInPage)
         XCTAssertEqual(LinkPolicy.action(for: URL(string: "about:blank")!, isLinkClick: false, base: nil), .allowInPage)
     }
 
     func testInPageAnchorClickIsAllowed() {
-        let anchor = URL(string: "#section-2", relativeTo: dir)!.absoluteURL
-        XCTAssertEqual(click(anchor), .allowInPage)
+        XCTAssertEqual(click(href("#section-2")), .allowInPage)
     }
 
     func testNonClickNavigationsAreBlocked() {
         // <meta http-equiv="refresh">, form posts, JS location changes.
-        XCTAssertEqual(LinkPolicy.action(for: URL(string: "https://evil.example/")!, isLinkClick: false, base: dir), .block)
-        XCTAssertEqual(LinkPolicy.action(for: URL(fileURLWithPath: "/etc/passwd"), isLinkClick: false, base: dir), .block)
+        XCTAssertEqual(LinkPolicy.action(for: URL(string: "https://evil.example/")!, isLinkClick: false, base: base), .block)
+        XCTAssertEqual(LinkPolicy.action(for: URL(fileURLWithPath: "/etc/passwd"), isLinkClick: false, base: base), .block)
+        XCTAssertEqual(LinkPolicy.action(for: href("other.md"), isLinkClick: false, base: base), .block)
+        // A file: URL with the same path is not the page (the page is mdres:).
+        XCTAssertEqual(LinkPolicy.action(for: dir, isLinkClick: false, base: base), .block)
+    }
+
+    // MARK: Relative links resolve through the resource scheme
+
+    func testRelativeMarkdownLinkOpensAsDocument() throws {
+        let md = try file("other.md")
+        XCTAssertEqual(click(href("other.md")), .openMarkdown(md))
+        XCTAssertEqual(click(href("../\(dir.lastPathComponent)/other.md")), .openMarkdown(md))
+    }
+
+    func testRelativeImageLinkOpensFile() throws {
+        let png = try file("pic.png")
+        XCTAssertEqual(click(href("pic.png")), .openFile(png))
+    }
+
+    func testRelativeScriptLinkIsOnlyRevealed() throws {
+        let sh = try file("run.command")
+        XCTAssertEqual(click(href("run.command")), .revealFile(sh))
     }
 
     // MARK: External schemes

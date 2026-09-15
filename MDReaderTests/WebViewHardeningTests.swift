@@ -34,10 +34,10 @@ final class WebViewHardeningTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    private func load(body: String) {
+    private func load(body: String, in directory: URL? = nil) {
         let done = expectation(description: "page loaded")
         delegate.onFinish = { done.fulfill() }
-        webView.loadHTMLString(HTMLTemplate.page(body: body), baseURL: dir)
+        webView.loadHTMLString(HTMLTemplate.page(body: body), baseURL: PreviewWebView.baseURL(forDirectory: directory ?? dir))
         wait(for: [done], timeout: 10)
     }
 
@@ -61,15 +61,17 @@ final class WebViewHardeningTests: XCTestCase {
         XCTAssertEqual(try imageWidth("i"), 1, "relative image next to the document must load (base \(dir.path))")
     }
 
-    /// Same check from directories that differ in symlink resolution and location, so a
-    /// platform-specific sandbox quirk shows up with a name rather than as a bare failure.
+    /// Same check from ordinary user directories, not just the temp dir the web process can
+    /// read on its own. Documents live in places like these; the resource handler must serve them.
     func testRelativeImageLoadsFromVariousBaseDirectories() throws {
         let tmp = FileManager.default.temporaryDirectory
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let products = Bundle.main.bundleURL.deletingLastPathComponent()
         let bases: [(String, URL)] = [
             ("temporaryDirectory", tmp),
             ("temporaryDirectory resolved", tmp.resolvingSymlinksInPath()),
             ("cachesDirectory", caches),
+            ("build products directory", products),
         ]
         var failures: [String] = []
         for (name, root) in bases {
@@ -77,15 +79,55 @@ final class WebViewHardeningTests: XCTestCase {
             try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: base) }
             try Self.onePixelPNG.write(to: base.appendingPathComponent("pixel.png"))
-            let done = expectation(description: "page loaded \(name)")
-            delegate.onFinish = { done.fulfill() }
-            webView.loadHTMLString(HTMLTemplate.page(body: "<img id=\"i\" src=\"pixel.png\">"), baseURL: base)
-            wait(for: [done], timeout: 10)
+            load(body: "<img id=\"i\" src=\"pixel.png\">", in: base)
             let width = try imageWidth("i")
             let complete = try eval("document.getElementById('i').complete") as? Bool ?? false
             if width != 1 { failures.append("\(name) \(base.path): naturalWidth=\(width) complete=\(complete)") }
         }
         XCTAssertTrue(failures.isEmpty, failures.joined(separator: "; "))
+    }
+
+    func testParentDirectoryImageLoads() throws {
+        let sub = dir.appendingPathComponent("docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        load(body: "<img id=\"i\" src=\"../pixel.png\">", in: sub)
+        XCTAssertEqual(try imageWidth("i"), 1, "../ relative images (README next to assets/) must load")
+    }
+
+    func testFileSchemeAndNonImageResourcesDoNotLoad() throws {
+        let abs = dir.appendingPathComponent("pixel.png").path
+        load(body: """
+        <img id="f" src="file://\(abs)">
+        <img id="t" src="secret.txt">
+        <img id="h" src="mdres:///etc/hosts">
+        <img id="ok" src="mdres://\(abs)">
+        """)
+        XCTAssertEqual(try imageWidth("ok"), 1)
+        settle(0.5)
+        for id in ["f", "t", "h"] {
+            XCTAssertEqual(try eval("document.getElementById('\(id)').naturalWidth") as? Int, 0, id)
+        }
+    }
+
+    func testResourceHandlerServability() throws {
+        XCTAssertTrue(DocumentResourceHandler.isServable(dir.appendingPathComponent("pixel.png")))
+        XCTAssertFalse(DocumentResourceHandler.isServable(dir.appendingPathComponent("secret.txt")))
+        XCTAssertFalse(DocumentResourceHandler.isServable(dir))
+        XCTAssertFalse(DocumentResourceHandler.isServable(URL(fileURLWithPath: "/etc/hosts")))
+        XCTAssertFalse(DocumentResourceHandler.isServable(URL(fileURLWithPath: "/bin/ls")))
+        XCTAssertFalse(DocumentResourceHandler.isServable(dir.appendingPathComponent("nope.png")))
+    }
+
+    func testRangeParsing() {
+        XCTAssertEqual(DocumentResourceHandler.parseRange("bytes=0-9", total: 100)?.0, 0)
+        XCTAssertEqual(DocumentResourceHandler.parseRange("bytes=0-9", total: 100)?.1, 9)
+        XCTAssertEqual(DocumentResourceHandler.parseRange("bytes=90-", total: 100)?.1, 99)
+        XCTAssertEqual(DocumentResourceHandler.parseRange("bytes=-10", total: 100)?.0, 90)
+        XCTAssertEqual(DocumentResourceHandler.parseRange("bytes=0-500", total: 100)?.1, 99)
+        XCTAssertNil(DocumentResourceHandler.parseRange("bytes=200-", total: 100))
+        XCTAssertNil(DocumentResourceHandler.parseRange("bytes=5-2", total: 100))
+        XCTAssertNil(DocumentResourceHandler.parseRange("bytes=0-1,3-4", total: 100))
+        XCTAssertNil(DocumentResourceHandler.parseRange("items=0-1", total: 100))
     }
 
     private func imageWidth(_ id: String) throws -> Int {
@@ -140,10 +182,10 @@ final class WebViewHardeningTests: XCTestCase {
         settle(1.0)
         // base-uri 'none': relative link still resolves against the document directory.
         let href = try eval("document.getElementById('a').href") as? String ?? ""
-        XCTAssertTrue(href.hasPrefix("file://"), href)
+        XCTAssertTrue(href.hasPrefix("mdres://"), href)
         // meta refresh needs the navigation delegate (LinkPolicy) to be blocked; here we only
         // assert the page did not navigate away on its own inside the test host.
-        XCTAssertTrue((webView.url?.isFileURL ?? true), String(describing: webView.url))
+        XCTAssertEqual(webView.url?.scheme, "mdres", String(describing: webView.url))
     }
 
     func testCSPHeaderPresentWithFreshNonce() {
@@ -163,10 +205,11 @@ final class WebViewHardeningTests: XCTestCase {
     func testRemoteImagesCanBeSwitchedOff() {
         let on = HTMLTemplate.contentSecurityPolicy(nonce: "n", allowRemote: true)
         let off = HTMLTemplate.contentSecurityPolicy(nonce: "n", allowRemote: false)
-        XCTAssertTrue(on.contains("img-src file: data: blob: https: http:"))
-        XCTAssertTrue(off.contains("img-src file: data: blob:;"))
+        XCTAssertTrue(on.contains("img-src mdres: data: blob: https: http:"))
+        XCTAssertTrue(off.contains("img-src mdres: data: blob:;"))
         XCTAssertFalse(off.contains("http"))
-        XCTAssertTrue(HTMLTemplate.page(body: "", allowRemote: false).contains("img-src file: data: blob:;"))
+        XCTAssertFalse(on.contains("file:"), "the web process must have no file: access")
+        XCTAssertTrue(HTMLTemplate.page(body: "", allowRemote: false).contains("img-src mdres: data: blob:;"))
     }
 
     func testRemoteImagesDefaultOn() {

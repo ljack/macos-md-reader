@@ -25,6 +25,9 @@ for the automated version.
 <iframe src="file:///etc/hosts"></iframe>
 <object data="file:///etc/hosts"></object>
 <embed src="file:///etc/passwd">
+<img src="file:///System/Library/CoreServices/Finder.app/Contents/Resources/Finder.icns" alt="file: image must NOT show">
+<img src="mdres:///etc/hosts" alt="non-image via resource scheme must NOT show">
+<img src="secret.txt" alt="text file as image must NOT show">
 
 ## Launching things by click
 

@@ -15,11 +15,12 @@ enum HTMLTemplate {
     /// Content Security Policy for the preview page. The rendered Markdown is untrusted:
     /// it may carry raw HTML (`CMARK_OPT_UNSAFE`, like GitHub). Only the app's own scripts run
     /// (nonce), nothing may fetch/XHR, frame, embed, submit forms or change the base URL.
-    /// Images and media may load from disk (relative paths next to the document) and, when
-    /// `allowRemote` (View ▸ Load Remote Images), from http(s) so badges and hosted images work.
-    /// Remote loads reveal the reader's IP address to the image host. See SECURITY.md.
+    /// Images and media may load through the app's `mdres:` resource handler (relative paths next
+    /// to the document; the web process has no `file:` access) and, when `allowRemote`
+    /// (View ▸ Load Remote Images), from http(s) so badges and hosted images work. Remote loads
+    /// reveal the reader's IP address to the image host. See SECURITY.md.
     static func contentSecurityPolicy(nonce: String, allowRemote: Bool = RemoteContent.isEnabled) -> String {
-        let local = "file: data: blob:"
+        let local = "\(PreviewWebView.scheme): data: blob:"
         let sources = allowRemote ? local + " https: http:" : local
         return [
             "default-src 'none'",
@@ -27,7 +28,7 @@ enum HTMLTemplate {
             "style-src 'unsafe-inline'",
             "img-src \(sources)",
             "media-src \(sources)",
-            "font-src file: data:",
+            "font-src \(PreviewWebView.scheme): data:",
             "connect-src 'none'",
             "object-src 'none'",
             "frame-src 'none'",

@@ -134,7 +134,7 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
         return nil
     }
 
-    private var baseURL: URL? { document.fileURL?.deletingLastPathComponent() }
+    private var baseURL: URL? { PreviewWebView.baseURL(forDirectory: document.fileURL?.deletingLastPathComponent()) }
 
     private func perform(_ action: LinkPolicy.Action) {
         switch action {

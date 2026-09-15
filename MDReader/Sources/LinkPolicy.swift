@@ -1,6 +1,5 @@
 import Foundation
 import UniformTypeIdentifiers
-import WebKit
 
 /// Decides what a navigation inside the preview may do. Pure function, unit-tested.
 ///
@@ -33,13 +32,16 @@ enum LinkPolicy {
     /// - Parameters:
     ///   - url: the navigation target.
     ///   - isLinkClick: `navigationType == .linkActivated` (or a `window.open`/`target=_blank`).
-    ///   - base: the directory URL the page was loaded with (`loadHTMLString(_:baseURL:)`).
+    ///   - base: the `mdres:` directory URL the page was loaded with (`PreviewWebView.baseURL`).
     static func action(for url: URL, isLinkClick: Bool, base: URL?) -> Action {
         if isSamePage(url, base: base) {
             if !isLinkClick || url.fragment != nil { return .allowInPage }
         }
         guard isLinkClick else {
             return url.absoluteString == "about:blank" ? .allowInPage : .block
+        }
+        if let file = PreviewWebView.fileURL(for: url) {
+            return fileAction(file)
         }
         if url.isFileURL {
             return fileAction(url)
@@ -55,10 +57,14 @@ enum LinkPolicy {
     }
 
     private static func isSamePage(_ url: URL, base: URL?) -> Bool {
-        guard url.isFileURL, let base, var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
-        comps.fragment = nil
-        comps.query = nil
-        return comps.url?.standardizedFileURL.path == base.standardizedFileURL.path
+        guard let base, url.scheme?.lowercased() == base.scheme?.lowercased() else { return false }
+        return directoryPath(url) == directoryPath(base)
+    }
+
+    private static func directoryPath(_ url: URL) -> String {
+        var path = url.path
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return path
     }
 
     private static func fileAction(_ url: URL) -> Action {
@@ -72,19 +78,5 @@ enum LinkPolicy {
         if launchableTypes.contains(where: { type.conforms(to: $0) }) { return .revealFile(url) }
         if openableTypes.contains(where: { type.conforms(to: $0) }) { return .openFile(url) }
         return .revealFile(url)
-    }
-}
-
-/// Hardened WebKit configuration for the preview.
-enum PreviewWebView {
-    static func makeConfiguration() -> WKWebViewConfiguration {
-        let config = WKWebViewConfiguration()
-        // Web Inspector for the app's own UI. Content scripts cannot run anyway (CSP nonce).
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-        // Defaults kept on purpose: no allowFileAccessFromFileURLs, no allowUniversalAccessFromFileURLs.
-        // Relative images next to the document still load because the page is loaded with the
-        // document directory as base URL; scripts and XHR/fetch are blocked by the CSP.
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
-        return config
     }
 }
