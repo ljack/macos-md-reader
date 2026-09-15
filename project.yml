@@ -27,7 +27,7 @@ targets:
       properties:
         CFBundleName: MD Reader
         CFBundleDisplayName: MD Reader
-        CFBundleShortVersionString: "0.1.3"
+        CFBundleShortVersionString: "0.1.4"
         CFBundleVersion: "1"
         LSApplicationCategoryType: public.app-category.productivity
         NSPrincipalClass: NSApplication
