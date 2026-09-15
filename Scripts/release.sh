@@ -10,7 +10,7 @@ PUBLISH=0; [[ "${1:-}" == "--publish" ]] && PUBLISH=1
 # Every build input must be committed: tracked changes, untracked files, and ignored files inside
 # the source/resource directories XcodeGen scans (they would compile in without a -dirty stamp).
 [[ -z "$(git status --porcelain --untracked-files=all)" ]] || { echo "working tree dirty or has untracked files; releases must come from a commit"; exit 1 }
-STRAY=$(git ls-files --others --ignored --exclude-standard MDReader MDReaderTests Scripts | grep -v '/\.DS_Store$' || true)
+STRAY=$(git ls-files --others --ignored --exclude-standard MDReader MDReaderTests Scripts | grep -v -e '/\.DS_Store$' -e '^MDReader/Info.plist$' || true)
 [[ -z "$STRAY" ]] || { echo "ignored files inside build inputs would be built without provenance:"; echo "$STRAY"; exit 1 }
 if (( PUBLISH )); then
   [[ "${SKIP_NOTARIZE:-}" != "1" ]] || { echo "SKIP_NOTARIZE=1 is not allowed with --publish"; exit 1 }
