@@ -78,6 +78,11 @@ is the manual version.
 - **No App Sandbox.** The app runs with the user's normal file permissions (needed for
   live-reload of arbitrary paths, "Open in Terminal/Editor", set-as-default handler and
   relative resources next to the document). The WebContent process is still WebKit-sandboxed.
+- **"Go to Terminal Session" talks to other apps.** It reads Teerminal's session manifest, sends
+  Apple Events to iTerm2 / Terminal (entitlement `com.apple.security.automation.apple-events`,
+  user consent via TCC) and can start a shell command or agent preset the user configured in
+  Settings. It is a menu action only: nothing in a document can trigger it, and the document
+  content never reaches the command line, only the document's directory does (shell-quoted).
 - **Text files are opened as Markdown.** `.txt` is registered as an alternate type, so a hostile
   `.txt` is rendered under the same rules as `.md`. Same protections apply.
 - **Clicking a link to a local image/PDF/text file opens it in its default app.** That app's

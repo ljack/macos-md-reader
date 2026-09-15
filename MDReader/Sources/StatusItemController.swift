@@ -84,6 +84,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             if MarkdownDocument.iTermURL != nil {
                 addDocumentAction("Open in iTerm2", #selector(MarkdownDocument.openInITerm(_:)), document, menu)
             }
+            addDocumentAction("Go to Terminal Session", #selector(MarkdownDocument.goToTerminalSession(_:)), document, menu)
         }
 
         menu.addItem(.separator())

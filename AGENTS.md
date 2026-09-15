@@ -31,7 +31,7 @@ xcodebuild -scheme MDReader -configuration Debug -derivedDataPath build/DerivedD
 ## Definition of done for a change
 
 1. `make ci` is green.
-2. New logic in `MarkdownRenderer`, `FrontMatter`, `RecentFilesStore`, `WindowActions`, `BuildInfo`, `LinkPolicy` or anything else without UI has a unit test in `MDReaderTests/`.
+2. New logic in `MarkdownRenderer`, `FrontMatter`, `RecentFilesStore`, `WindowActions`, `BuildInfo`, `LinkPolicy`, `AgentSession`, `Zoom` or anything else without UI has a unit test in `MDReaderTests/`.
    Anything touching `HTMLTemplate`, `PreviewWebView`, `DocumentResourceHandler`, `LinkPolicy` or the WebKit delegates is security-relevant: keep `WebViewHardeningTests` and `LinkPolicyTests` green, open `Samples/hostile.md`, and update `SECURITY.md` if a promise changes.
 3. UI changes were launched and looked at (screenshot or accessibility inspection), not just compiled.
 4. Commit message: imperative subject ≤ 72 chars, body explains why. Conventional prefixes not required.
@@ -80,6 +80,7 @@ The document is hostile input. Four layers, all with tests: cmark `tagfilter` pl
 ## Gotchas learned the hard way
 
 - **Same bundle id, multiple copies.** Launch Services picks any registered copy of `fi.jarkkolietolahti.MDReader`, including ones in `build/DerivedData`. `Scripts/build.sh` deletes the DerivedData copy after each Release build, and `Scripts/smoke.sh` unregisters the copy it launched and re-registers `/Applications/MD Reader.app`. If Finder opens the wrong copy: `lsregister -f "/Applications/MD Reader.app"`.
+- **Go to Terminal Session** (`AgentJump`, `AgentSession`, `TerminalScripting`, `SettingsWindowController`). Teerminal sessions come from `~/Library/Application Support/Teerminal/sessions.json` (`TeerminalManifest`), focus/open go through `teerminal://focus?session=` and `teerminal://open?dir=&preset=`; iTerm2/Terminal tabs are listed over AppleScript and their cwd read with libproc from the tty. Apple Events need `MDReader/MDReader.entitlements` (`CODE_SIGN_ENTITLEMENTS`) plus `NSAppleEventsUsageDescription`, and the user's one-time Automation consent; without consent those hosts just yield no sessions. Decisions are logged to the unified log, subsystem `fi.jarkkolietolahti.MDReader`, category `AgentJump` (`log stream --info --predicate 'subsystem == "fi.jarkkolietolahti.MDReader"'`). Two running Teerminal dev builds share the URL scheme, so focus can land in the wrong instance on a dev machine.
 - **AppKit auto-injects menu items.** File ▸ Open Recent, and once tabs exist: Close Window / Close Tab / Close Other Tabs / Close All (⌥-alternate). Don't add duplicates; name yours differently (we use "Close All Windows").
 - **Open Recent cap** is `NSRecentDocumentsLimit`, registered to 100 in `AppDelegate`.
 - **Product name has a space** ("MD Reader"). Module name is `MDReader`. Test target needs explicit `TEST_HOST`.

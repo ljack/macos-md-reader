@@ -11,6 +11,8 @@ enum MenuBuilder {
         appMenu.addItem(withTitle: "About MD Reader", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
         appMenu.addItem(withTitle: "Copy Build Info", action: #selector(AppDelegate.copyBuildInfo(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Make Default Markdown Viewer…",
                         action: #selector(AppDelegate.makeDefaultViewer(_:)), keyEquivalent: "")
         let showStatus = appMenu.addItem(withTitle: "Show in Menu Bar",
@@ -45,6 +47,9 @@ enum MenuBuilder {
         if MarkdownDocument.iTermURL != nil {
             file.addItem(withTitle: "Open in iTerm2", action: #selector(MarkdownDocument.openInITerm(_:)), keyEquivalent: "")
         }
+        let goTo = file.addItem(withTitle: "Go to Terminal Session", action: #selector(MarkdownDocument.goToTerminalSession(_:)), keyEquivalent: "T")
+        goTo.keyEquivalentModifierMask = [.command, .shift]
+        goTo.toolTip = "Focus the Teerminal, iTerm2 or Terminal session working in this folder, or start one (see Settings…)."
         let openWith = file.addItem(withTitle: "Open With", action: nil, keyEquivalent: "")
         let openWithMenu = NSMenu(title: "Open With")
         openWithMenu.delegate = openWithMenuDelegate

@@ -53,6 +53,7 @@ macOS has no built-in way to *read* Markdown. Quick Look shows raw text. Editors
 - YAML front matter rendered as a compact metadata table.
 - Heading anchors: `[link](#section)` works the way it does on GitHub.
 - Relative images resolve next to the file. Relative `.md` links open in a new window or tab. External links open in your browser.
+- **Go to Terminal Session** (⇧⌘T, also in the menu bar icon): brings the Teerminal, iTerm2 or Terminal session that is working in the document's folder to the front, so you can read what an agent wrote and jump straight back to it. Teerminal sessions are found from its session manifest; iTerm2 and Terminal tabs are matched by the working directory of the processes on their tty (Automation permission is asked once). With no matching session, MD Reader starts one the way you configured in **Settings…**: a Teerminal preset such as `codex` or `claude`, or a command in a new iTerm2 / Terminal window.
 - ⌘F find with next / previous, ⌘+ / ⌘− / ⌘0 and trackpad pinch zoom in both directions, 50–300 %, remembered, ⌘P print with sensible margins.
 
 ### Live reload

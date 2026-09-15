@@ -80,6 +80,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         (sender as? NSMenuItem)?.state = StatusItemController.isEnabled ? .on : .off
     }
 
+    @objc func showSettings(_ sender: Any?) {
+        SettingsWindowController.shared.show()
+    }
+
     @objc func makeDefaultViewer(_ sender: Any?) {
         DefaultHandler.makeDefault { error in
             if let error {

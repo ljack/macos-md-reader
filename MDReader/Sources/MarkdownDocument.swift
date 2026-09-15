@@ -107,6 +107,14 @@ final class MarkdownDocument: NSDocument {
         openDirectory(inAppWithBundleID: "com.googlecode.iterm2")
     }
 
+    /// Bring the terminal session working in this document's folder to the front, or start one.
+    @objc func goToTerminalSession(_ sender: Any?) {
+        guard let fileURL else { return }
+        AgentJump.go(to: fileURL) { result in
+            if case .failure(let error) = result { NSAlert(error: error).runModal() }
+        }
+    }
+
     static var iTermURL: URL? {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2")
     }
