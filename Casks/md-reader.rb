@@ -1,6 +1,6 @@
 cask "md-reader" do
-  version "0.1.5"
-  sha256 "9772fbf311d5518fafa41de61e7cca84118dc7b7ada3def00c48b876c648c229"
+  version "0.1.6"
+  sha256 "26e7eac3d9ecee46d44271b5cbb3df1193a605e2dbc35589475e974fc68114f2"
 
   url "https://github.com/ljack/macos-md-reader/releases/download/v#{version}/MD-Reader-#{version}.zip"
   name "MD Reader"
