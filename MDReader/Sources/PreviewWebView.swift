@@ -42,22 +42,36 @@ enum PreviewWebView {
     }
 }
 
-/// Serves document resources to the web view. Only files whose type conforms to image,
-/// audiovisual content or font are readable; everything else is a 404 as far as the page
-/// can tell. Supports `Range` so media playback works.
+/// Serves document resources to the web view. Only files whose type (by extension) conforms to
+/// image, audiovisual content or font are readable; everything else is a 404 as far as the page
+/// can tell. The file is opened once (`O_NOFOLLOW`: the final path component may not be a
+/// symlink) and validated with `fstat` on that descriptor, so the bytes served are the bytes
+/// that were checked. Whole-file responses are capped; larger files are served only through
+/// `Range` requests in bounded chunks, which is how WebKit fetches media anyway.
 final class DocumentResourceHandler: NSObject, WKURLSchemeHandler {
     static let servableTypes: [UTType] = [.image, .audiovisualContent, .font]
+    /// Largest file served in one response (images, fonts).
+    static let maxWholeResponseBytes = 64 * 1024 * 1024
+    /// Largest single `Range` response; the client asks again for the rest.
+    static let maxRangeResponseBytes = 16 * 1024 * 1024
+    /// Files above this are never served, range or not.
+    static let maxFileBytes = 4 * 1024 * 1024 * 1024
 
     private let queue = DispatchQueue(label: "fi.jarkkolietolahti.MDReader.resources", qos: .userInitiated)
     private let lock = NSLock()
     private var active = Set<ObjectIdentifier>()
+
+    private func isActive(_ id: ObjectIdentifier) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return active.contains(id)
+    }
 
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         let id = ObjectIdentifier(task)
         lock.lock(); active.insert(id); lock.unlock()
         let request = task.request
         queue.async { [weak self] in
-            guard let self else { return }
+            guard let self, self.isActive(id) else { return }   // stopped before we got to it
             let result = Self.load(request)
             DispatchQueue.main.async {
                 self.lock.lock()
@@ -80,38 +94,77 @@ final class DocumentResourceHandler: NSObject, WKURLSchemeHandler {
         lock.lock(); active.remove(ObjectIdentifier(task)); lock.unlock()
     }
 
-    // MARK: Loading
+    // MARK: Opening and validating
+
+    struct OpenFile {
+        let fd: Int32
+        let size: Int
+        let type: UTType
+        func close() { Darwin.close(fd) }
+    }
+
+    /// Opens and validates in one step. `nil` when the file must not be served.
+    static func openServable(_ fileURL: URL) -> OpenFile? {
+        guard fileURL.isFileURL, !fileURL.pathExtension.isEmpty,
+              let type = UTType(filenameExtension: fileURL.pathExtension),
+              servableTypes.contains(where: { type.conforms(to: $0) }) else { return nil }
+        let fd = open(fileURL.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        var st = stat()
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG,
+              st.st_size >= 0, st.st_size <= maxFileBytes else {
+            Darwin.close(fd)
+            return nil
+        }
+        return OpenFile(fd: fd, size: Int(st.st_size), type: type)
+    }
 
     static func isServable(_ fileURL: URL) -> Bool {
-        guard let values = try? fileURL.resourceValues(forKeys: [.contentTypeKey, .isDirectoryKey, .isRegularFileKey]),
-              values.isDirectory != true, values.isRegularFile == true,
-              let type = values.contentType else { return false }
-        return servableTypes.contains(where: { type.conforms(to: $0) })
+        guard let file = openServable(fileURL) else { return false }
+        file.close()
+        return true
+    }
+
+    private static func read(_ file: OpenFile, from offset: Int, count: Int) -> Data? {
+        var data = Data(count: count)
+        var done = 0
+        let ok: Bool = data.withUnsafeMutableBytes { buf in
+            guard let base = buf.baseAddress else { return count == 0 }
+            while done < count {
+                let n = pread(file.fd, base + done, count - done, off_t(offset + done))
+                if n <= 0 { return false }
+                done += n
+            }
+            return true
+        }
+        return ok ? data : nil
     }
 
     private static func load(_ request: URLRequest) -> Result<(URLResponse, Data), Error> {
-        guard let url = request.url, let fileURL = PreviewWebView.fileURL(for: url), isServable(fileURL) else {
+        guard let url = request.url, let fileURL = PreviewWebView.fileURL(for: url),
+              let file = openServable(fileURL) else {
             return .failure(URLError(.fileDoesNotExist))
         }
-        guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) else {
-            return .failure(URLError(.cannotOpenFile))
-        }
-        let mime = (try? fileURL.resourceValues(forKeys: [.contentTypeKey]).contentType?.preferredMIMEType) ?? "application/octet-stream"
+        defer { file.close() }
+        let mime = file.type.preferredMIMEType ?? "application/octet-stream"
         var headers: [String: String] = [
             "Content-Type": mime,
             "Accept-Ranges": "bytes",
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         ]
-        if let range = request.value(forHTTPHeaderField: "Range"), let (lo, hi) = parseRange(range, total: data.count) {
-            let slice = data.subdata(in: lo..<(hi + 1))
-            headers["Content-Range"] = "bytes \(lo)-\(hi)/\(data.count)"
+        if let range = request.value(forHTTPHeaderField: "Range"), let (lo, requestedHi) = parseRange(range, total: file.size) {
+            let hi = min(requestedHi, lo + maxRangeResponseBytes - 1)
+            guard let slice = read(file, from: lo, count: hi - lo + 1) else { return .failure(URLError(.cannotOpenFile)) }
+            headers["Content-Range"] = "bytes \(lo)-\(hi)/\(file.size)"
             headers["Content-Length"] = String(slice.count)
             guard let response = HTTPURLResponse(url: url, statusCode: 206, httpVersion: "HTTP/1.1", headerFields: headers) else {
                 return .failure(URLError(.badServerResponse))
             }
             return .success((response, slice))
         }
+        guard file.size <= maxWholeResponseBytes else { return .failure(URLError(.dataLengthExceedsMaximum)) }
+        guard let data = read(file, from: 0, count: file.size) else { return .failure(URLError(.cannotOpenFile)) }
         headers["Content-Length"] = String(data.count)
         guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers) else {
             return .failure(URLError(.badServerResponse))
@@ -129,7 +182,7 @@ final class DocumentResourceHandler: NSObject, WKURLSchemeHandler {
             guard let n = Int(b), n > 0 else { return nil }
             return (max(0, total - n), total - 1)
         }
-        guard let lo = Int(a), lo < total else { return nil }
+        guard let lo = Int(a), lo >= 0, lo < total else { return nil }
         let hi = b.isEmpty ? total - 1 : min(Int(b) ?? -1, total - 1)
         guard hi >= lo else { return nil }
         return (lo, hi)

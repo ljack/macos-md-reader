@@ -28,6 +28,17 @@ enum LinkPolicy {
         .executable, .script, .shellScript, .application, .applicationBundle, .bundle, .package,
         .internetLocation, .archive, .diskImage, .aliasFile, .symbolicLink,
     ]
+    /// Extensions whose UTType conforms to something harmless-looking (XML, plist, text) but
+    /// whose default handler launches, installs or configures something. Always only revealed.
+    static let launchableExtensions: Set<String> = [
+        "jnlp", "mobileconfig", "mobileprovision", "provisionprofile", "terminal", "url", "webloc",
+        "inetloc", "fileloc", "ftploc", "afploc", "vncloc", "workflow", "wflow", "action", "app",
+        "command", "tool", "sh", "zsh", "bash", "csh", "fish", "py", "rb", "pl", "php", "scpt",
+        "scptd", "applescript", "jar", "pkg", "mpkg", "dmg", "iso", "img", "sparsebundle",
+        "sparseimage", "kext", "plugin", "bundle", "qlgenerator", "saver", "prefpane", "service",
+        "savedsearch", "safariextz", "xip", "cer", "crt", "der", "p12", "pfx", "pem", "keychain",
+        "shortcut", "itermcolors", "reg", "bat", "cmd", "ps1", "vbs", "js", "jse", "hta", "msi", "exe",
+    ]
 
     /// - Parameters:
     ///   - url: the navigation target.
@@ -69,6 +80,7 @@ enum LinkPolicy {
 
     private static func fileAction(_ url: URL) -> Action {
         if isMarkdown(url) { return .openMarkdown(url) }
+        if launchableExtensions.contains(url.pathExtension.lowercased()) { return .revealFile(url) }
         let values = try? url.resourceValues(forKeys: [.contentTypeKey, .isExecutableKey, .isDirectoryKey, .isSymbolicLinkKey])
         let type = values?.contentType ?? UTType(filenameExtension: url.pathExtension)
         let isDirectory = values?.isDirectory ?? false

@@ -65,7 +65,7 @@ final class FeedbackSheet: NSWindowController {
         contextCheckbox.state = .on
 
         tokenField.placeholderString = "GitHub token (optional — without it, opens in browser)"
-        tokenField.stringValue = TokenStore.load() ?? ""
+        tokenField.stringValue = (try? TokenStore.load()) ?? ""
         tokenField.font = .systemFont(ofSize: 12)
         let tokenHelp = NSButton(title: "", target: self, action: #selector(openTokenHelp))
         tokenHelp.image = NSImage(systemSymbolName: "questionmark.circle", accessibilityDescription: "Token help")
@@ -155,7 +155,13 @@ final class FeedbackSheet: NSWindowController {
     }
 
     @objc private func submit(_ sender: Any?) {
-        TokenStore.save(tokenField.stringValue)
+        do {
+            try TokenStore.save(tokenField.stringValue)
+        } catch {
+            statusLabel.stringValue = error.localizedDescription
+            statusLabel.textColor = .systemRed
+            return
+        }
         let report = FeedbackReport(kind: kind,
                                     title: titleField.stringValue.trimmingCharacters(in: .whitespaces),
                                     body: bodyView.string,

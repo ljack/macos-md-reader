@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Warm the parser + template cache before the first document arrives.
         MarkdownRenderer.warmUp()
         HTMLTemplate.warmUp()
+        RemoteContentBlocker.compile()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

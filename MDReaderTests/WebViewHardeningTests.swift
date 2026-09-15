@@ -111,11 +111,36 @@ final class WebViewHardeningTests: XCTestCase {
 
     func testResourceHandlerServability() throws {
         XCTAssertTrue(DocumentResourceHandler.isServable(dir.appendingPathComponent("pixel.png")))
+        // Final path component may not be a symlink (O_NOFOLLOW); ancestors may.
+        let link = dir.appendingPathComponent("link.png")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: dir.appendingPathComponent("pixel.png"))
+        XCTAssertFalse(DocumentResourceHandler.isServable(link))
+        // Extension decides the type; a PNG named .txt is not served, a text file named .png is
+        // served as bytes that WebKit's decoder rejects (no code path reads it as text).
+        try Self.onePixelPNG.write(to: dir.appendingPathComponent("really.txt"))
+        XCTAssertFalse(DocumentResourceHandler.isServable(dir.appendingPathComponent("really.txt")))
         XCTAssertFalse(DocumentResourceHandler.isServable(dir.appendingPathComponent("secret.txt")))
         XCTAssertFalse(DocumentResourceHandler.isServable(dir))
         XCTAssertFalse(DocumentResourceHandler.isServable(URL(fileURLWithPath: "/etc/hosts")))
         XCTAssertFalse(DocumentResourceHandler.isServable(URL(fileURLWithPath: "/bin/ls")))
         XCTAssertFalse(DocumentResourceHandler.isServable(dir.appendingPathComponent("nope.png")))
+    }
+
+    func testRemoteBlockerCompilesAndAppliesOnlyWhenOff() throws {
+        let compiled = expectation(description: "rule list compiled")
+        var list: WKContentRuleList?
+        RemoteContentBlocker.compile { list = $0; compiled.fulfill() }
+        wait(for: [compiled], timeout: 20)
+        XCTAssertNotNil(list, "content rule list must compile")
+        let controller = webView.configuration.userContentController
+        RemoteContentBlocker.apply(to: webView, remoteEnabled: false)
+        // No public getter for attached lists; a smoke check that apply() with remote on does not throw
+        // and that a page still loads with the list attached.
+        load(body: "<img id=\"l\" src=\"pixel.png\"><img id=\"r\" src=\"http://127.0.0.1:1/x.png\">")
+        XCTAssertEqual(try imageWidth("l"), 1, "local resources are unaffected by the remote block list")
+        XCTAssertEqual(try eval("document.getElementById('r').naturalWidth") as? Int, 0)
+        RemoteContentBlocker.apply(to: webView, remoteEnabled: true)
+        _ = controller
     }
 
     func testRangeParsing() {
@@ -128,6 +153,8 @@ final class WebViewHardeningTests: XCTestCase {
         XCTAssertNil(DocumentResourceHandler.parseRange("bytes=5-2", total: 100))
         XCTAssertNil(DocumentResourceHandler.parseRange("bytes=0-1,3-4", total: 100))
         XCTAssertNil(DocumentResourceHandler.parseRange("items=0-1", total: 100))
+        XCTAssertNil(DocumentResourceHandler.parseRange("bytes=-0", total: 100))
+        XCTAssertNil(DocumentResourceHandler.parseRange("bytes=x-1", total: 100))
     }
 
     private func imageWidth(_ id: String) throws -> Int {

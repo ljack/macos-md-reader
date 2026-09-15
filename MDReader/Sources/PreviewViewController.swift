@@ -58,6 +58,7 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
         super.viewDidLoad()
         NotificationCenter.default.addObserver(self, selector: #selector(zoomChanged), name: Zoom.changed, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(remoteContentChanged), name: RemoteContent.changed, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(remoteContentChanged), name: RemoteContentBlocker.ready, object: nil)
         loadFullPage()
     }
 
@@ -65,6 +66,7 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
 
     private func loadFullPage() {
         pageLoaded = false
+        RemoteContentBlocker.apply(to: webView)
         let result = MarkdownRenderer.render(document.text)
         let page = HTMLTemplate.page(body: result.html)
         webView.loadHTMLString(page, baseURL: baseURL)
@@ -111,6 +113,7 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         pageLoaded = true
         if updateQueued { updateQueued = false; pushUpdate() }
+        onPageLoaded?()
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
@@ -128,15 +131,27 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        // Same rule as decidePolicyFor: only a real link activation may act. A programmatic
+        // window.open is .other and ends up as .block.
         if let url = navigationAction.request.url {
-            perform(LinkPolicy.action(for: url, isLinkClick: true, base: baseURL))
+            perform(LinkPolicy.action(for: url,
+                                      isLinkClick: navigationAction.navigationType == .linkActivated,
+                                      base: baseURL))
         }
         return nil
     }
 
     private var baseURL: URL? { PreviewWebView.baseURL(forDirectory: document.fileURL?.deletingLastPathComponent()) }
 
+    // MARK: Test hooks
+
+    /// Replaces the side effects of a navigation decision (integration tests record instead of opening).
+    var actionHandler: ((LinkPolicy.Action) -> Void)?
+    /// Called after every full page load.
+    var onPageLoaded: (() -> Void)?
+
     private func perform(_ action: LinkPolicy.Action) {
+        if let actionHandler { actionHandler(action); return }
         switch action {
         case .allowInPage, .block:
             break

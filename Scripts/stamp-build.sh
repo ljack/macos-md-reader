@@ -10,7 +10,13 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   SHA=$(git rev-parse --short=12 HEAD)
   COUNT=$(git rev-list --count HEAD)
   BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  DIRTY=""; [[ -n "$(git status --porcelain --untracked-files=no)" ]] && DIRTY="-dirty"
+  # Dirty if tracked files changed anywhere, or if untracked files sit inside the directories
+  # XcodeGen compiles from (they end up in the binary without being in the commit).
+  DIRTY=""
+  if [[ -n "$(git status --porcelain --untracked-files=no)" ]] \
+     || [[ -n "$(git status --porcelain --untracked-files=all -- MDReader MDReaderTests Scripts | grep '^??' || true)" ]]; then
+    DIRTY="-dirty"
+  fi
 else
   SHA=unknown; COUNT=0; BRANCH=unknown; DIRTY=""
 fi

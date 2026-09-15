@@ -48,11 +48,24 @@ enum MarkdownRenderer {
         }
         defer { free(cstr) }
 
-        var html = String(cString: cstr)
+        var html = neutraliseStructuralTags(String(cString: cstr))
         if let frontMatter {
             html = frontMatter.html + html
         }
         return RenderResult(html: html)
+    }
+
+    /// Tags GFM's `tagfilter` leaves alone but that have no place in a viewer: `<link>` and
+    /// `<meta>` can trigger DNS prefetch / preconnect / refresh outside the CSP's reach, `<base>`
+    /// rewrites relative URLs, `<object>`, `<embed>` and `<applet>` are plug-in loaders. They are
+    /// escaped the same way tagfilter escapes `<script>`: the `<` becomes `&lt;` and the text is
+    /// shown verbatim. The CSP blocks all of them anyway; this makes the page not even ask.
+    static let structuralTagPattern = try! NSRegularExpression(
+        pattern: "<(?=/?(?:link|meta|base|object|embed|applet)(?:[\\s/>]|$))", options: [.caseInsensitive])
+
+    static func neutraliseStructuralTags(_ html: String) -> String {
+        let range = NSRange(html.startIndex..., in: html)
+        return structuralTagPattern.stringByReplacingMatches(in: html, range: range, withTemplate: "&lt;")
     }
 }
 

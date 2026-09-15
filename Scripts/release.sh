@@ -6,7 +6,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 NOTARY_PROFILE="${NOTARY_PROFILE:-md-reader-notary}"
-[[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo "working tree dirty; releases must come from a commit"; exit 1 }
+PUBLISH=0; [[ "${1:-}" == "--publish" ]] && PUBLISH=1
+# Every build input must be committed: tracked changes, untracked files, and ignored files inside
+# the source/resource directories XcodeGen scans (they would compile in without a -dirty stamp).
+[[ -z "$(git status --porcelain --untracked-files=all)" ]] || { echo "working tree dirty or has untracked files; releases must come from a commit"; exit 1 }
+STRAY=$(git ls-files --others --ignored --exclude-standard MDReader MDReaderTests Scripts | grep -v '/\.DS_Store$' || true)
+[[ -z "$STRAY" ]] || { echo "ignored files inside build inputs would be built without provenance:"; echo "$STRAY"; exit 1 }
+if (( PUBLISH )); then
+  [[ "${SKIP_NOTARIZE:-}" != "1" ]] || { echo "SKIP_NOTARIZE=1 is not allowed with --publish"; exit 1 }
+  make ci
+fi
 COMMIT=$(git rev-parse HEAD)
 VERSION=$(sed -n 's/^        CFBundleShortVersionString: "\(.*\)"/\1/p' project.yml)
 [[ -n "$VERSION" ]] || { echo "version not found in project.yml"; exit 1 }
@@ -34,7 +43,7 @@ echo "version: $VERSION"
 echo "zip:     $ZIP"
 echo "sha256:  $SHA"
 
-if [[ "${1:-}" == "--publish" ]]; then
+if (( PUBLISH )); then
   REPO=ljack/macos-md-reader
   TAP=ljack/homebrew-tap
   TAG="v$VERSION"
@@ -45,8 +54,12 @@ Provenance: About MD Reader shows the commit; \`Copy Build Info\` copies it.
 \`\`\`
 sha256  $SHA  MD-Reader-$VERSION.zip
 \`\`\`"
-  gh release create "$TAG" "$ZIP" --repo "$REPO" --target "$COMMIT" --title "MD Reader $VERSION" --notes "$NOTES" 2>/dev/null \
-    || gh release upload "$TAG" "$ZIP" --repo "$REPO" --clobber
+  # Fail closed: a tag that already exists means this version was published from some commit;
+  # never replace its asset. Bump the version instead.
+  if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+    echo "release $TAG already exists; bump the version (make bump V=...) instead of re-publishing"; exit 1
+  fi
+  gh release create "$TAG" "$ZIP" --repo "$REPO" --target "$COMMIT" --title "MD Reader $VERSION" --notes "$NOTES"
   sed -i '' -e "s/^  version \".*\"/  version \"$VERSION\"/" -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" Casks/md-reader.rb
   git add Casks/md-reader.rb && git commit -qm "Release $VERSION" && git push -q --no-verify
   TMP=$(mktemp -d)

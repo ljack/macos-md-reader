@@ -112,7 +112,10 @@ final class LinkPolicyTests: XCTestCase {
 
     func testLaunchableFilesAreOnlyRevealed() throws {
         for name in ["run.command", "run.sh", "tool.py", "Thing.app", "x.scpt", "site.webloc",
-                     "bundle.jar", "arc.zip", "disk.dmg", "pkg.pkg", "flow.workflow", "term.terminal"] {
+                     "bundle.jar", "arc.zip", "disk.dmg", "pkg.pkg", "flow.workflow", "term.terminal",
+                     // text/XML-conforming types whose handler launches or installs something
+                     "launch.jnlp", "profile.mobileconfig", "link.url", "link.inetloc", "cert.cer",
+                     "id.p12", "s.shortcut", "a.action", "x.savedSearch", "RUN.COMMAND", "e.js"] {
             let url = try file(name)
             XCTAssertEqual(click(url), .revealFile(url), name)
         }

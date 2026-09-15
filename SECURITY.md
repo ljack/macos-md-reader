@@ -46,19 +46,23 @@ image host (see "Accepted risks"), and content that merely *looks* misleading.
 
 | Layer | Mechanism | Where |
 |---|---|---|
-| Rendering | cmark-gfm with the GFM `tagfilter` extension: `<script>`, `<style>`, `<iframe>`, `<object>`, `<embed>`, `<textarea>`, `<title>`, `<xmp>`, `<noembed>`, `<noframes>`, `<plaintext>` are escaped, matching GitHub. Other raw HTML is kept (`CMARK_OPT_UNSAFE`) for fidelity. | `MDReader/Sources/MarkdownRenderer.swift` |
+| Rendering | cmark-gfm with the GFM `tagfilter` extension escapes `<script>`, `<style>`, `<iframe>`, `<textarea>`, `<title>`, `<xmp>`, `<noembed>`, `<noframes>`, `<plaintext>`, matching GitHub. The app additionally escapes `<link>`, `<meta>`, `<base>`, `<object>`, `<embed>` and `<applet>` (`neutraliseStructuralTags`) so the page never even asks for a preconnect, refresh, base change or plug-in. Other raw HTML is kept (`CMARK_OPT_UNSAFE`) for fidelity. Neither filter is an HTML sanitizer; the CSP is the boundary. Documents larger than 64 MB are refused before parsing, because cmark aborts the process on allocation failure instead of returning an error. | `MDReader/Sources/MarkdownRenderer.swift`, `MarkdownDocument.swift` |
 | Page policy | A `Content-Security-Policy` on every page: `default-src 'none'`; scripts only with a per-load random nonce (so document HTML, event handlers and `javascript:` URLs never execute); `connect-src 'none'` (no fetch/XHR); no frames, objects, workers, forms or `<base>` changes. Images/media may load from `mdres:` (the app's resource handler), `data:` and, only while View ▸ Load Remote Images is on, `http(s):`; never from `file:`. | `MDReader/Sources/HTMLTemplate.swift` |
-| WebKit | The web content process has **no `file:` access at all**. The page is loaded with an `mdres:///<document directory>/` base URL and every relative image, video, audio or font goes through `DocumentResourceHandler`, a `WKURLSchemeHandler` in the app process that reads the file and serves it only if its type conforms to image, audiovisual content or font. Text, scripts, directories and unknown types are a 404 to the page. No `allowFileAccessFromFileURLs`, no `allowUniversalAccessFromFileURLs`. | `MDReader/Sources/PreviewWebView.swift` |
-| Navigation | Every navigation goes through `LinkPolicy`. Only user clicks act. `http(s)`/`mailto` open in the default handler; other Markdown files open as new documents; images, PDFs, text and folders open in their app; anything launchable (apps, scripts, `.command`, `.webloc`, archives, disk images, symlinks, executable bit) is only revealed in Finder. Meta refresh, form posts and unknown URL schemes are dropped. | `MDReader/Sources/LinkPolicy.swift`, `PreviewViewController.swift` |
-| Process | Hardened Runtime, Developer ID signed, notarized and stapled. Build provenance (commit, branch, date) stamped into `Info.plist` and shown in About; the release notes and Homebrew cask pin the zip's SHA-256. | `project.yml`, `Scripts/release.sh`, `Scripts/stamp-build.sh` |
+| WebKit | The web content process has **no `file:` access at all**. The page is loaded with an `mdres:///<document directory>/` base URL and every relative image, video, audio or font goes through `DocumentResourceHandler`, a `WKURLSchemeHandler` in the app process. It decides by extension (image, audiovisual content, font), opens the file once with `O_NOFOLLOW` (the last path component may not be a symlink; ancestors may), validates the open descriptor with `fstat` (regular file, size) and reads from that descriptor, so the bytes served are the bytes checked. Whole responses are capped at 64 MB; larger files are served only via `Range` in 16 MB chunks; files over 4 GB never. Stopped tasks are dropped before any read. Text, scripts, directories and unknown types are a 404 to the page. No `allowFileAccessFromFileURLs`, no `allowUniversalAccessFromFileURLs`. | `MDReader/Sources/PreviewWebView.swift` |
+| Navigation | Every navigation, including `target=_blank` and `window.open`, goes through `LinkPolicy` with the real WebKit navigation type. Only link activations act. `http(s)`/`mailto` open in the default handler; other Markdown files open as new documents; images, PDFs, text and folders open in their app; anything launchable is only revealed in Finder: by UTType (apps, scripts, bundles, packages, internet locations, archives, disk images, aliases, symlinks), by executable bit, and by an explicit extension deny list for types that merely *conform* to text/XML but launch or install something (`.jnlp`, `.mobileconfig`, `.terminal`, `.url`, `.inetloc`, `.workflow`, `.shortcut`, certificates, …). Meta refresh, form posts and unknown URL schemes are dropped. | `MDReader/Sources/LinkPolicy.swift`, `PreviewViewController.swift` |
+| Process | Hardened Runtime, Developer ID signed, notarized and stapled. Build provenance (commit, branch, date) stamped into `Info.plist` and shown in About; the stamp is `-dirty` if tracked files changed *or* untracked files sit in a compiled directory. `release.sh` refuses dirty or untracked inputs, refuses `SKIP_NOTARIZE` with `--publish`, runs `make ci` first, and fails closed if the tag already exists (no asset replacement). The release notes and Homebrew cask pin the zip's SHA-256. | `project.yml`, `Scripts/release.sh`, `Scripts/stamp-build.sh` |
+| Remote content | **View ▸ Load Remote Images** off removes `http(s):` from the CSP *and* attaches a WebKit content rule list that blocks every `http`, `https`, `ws`, `wss` load in the web view, whatever element asked for it. Two independent layers, both tested. | `MDReader/Sources/HTMLTemplate.swift` (`RemoteContentBlocker`) |
 | Network | The app makes exactly one kind of outbound request itself: `POST https://api.github.com/repos/ljack/macos-md-reader/issues` from the feedback sheet, only when the user presses Send and only with a token the user pasted. No telemetry, no update checks. | `MDReader/Sources/GitHubFeedback.swift` |
-| Secrets | The optional GitHub token lives in the login Keychain (`kSecClassGenericPassword`), never in defaults or logs. Recommended scope: fine-grained token, Issues: write, this repo only. | `MDReader/Sources/GitHubFeedback.swift` (`TokenStore`) |
+| Secrets | The optional GitHub token lives in the login Keychain (`kSecClassGenericPassword`), never in defaults or logs. Keychain errors are surfaced, not swallowed: a locked or denied Keychain fails the submission instead of silently falling back to the browser, and a failed write never deletes the old token (`SecItemUpdate`). Recommended scope: fine-grained token, Issues: write, this repo only. | `MDReader/Sources/GitHubFeedback.swift` (`TokenStore`) |
 
-Regression tests: `MDReaderTests/WebViewHardeningTests.swift` loads hostile HTML into a real
-`WKWebView` and checks scripts do not run, `fetch` of a local file fails, frames are blocked,
-`file:` and non-image resources do not load, and relative images (including `../`) load from
-ordinary user directories, not just the temp dir. `MDReaderTests/LinkPolicyTests.swift` covers the navigation rules.
-`Samples/hostile.md` is the manual version.
+Regression tests: `MDReaderTests/PreviewIntegrationTests.swift` runs hostile Markdown through the
+real renderer, document and `PreviewViewController` (its web view, delegates and `LinkPolicy`) with
+the side effects recorded, and checks nothing happens without a click, a click acts exactly once,
+and `window.open` is not a click. `WebViewHardeningTests.swift` checks the CSP, the resource handler
+(no `file:`, no non-image files, no symlinked final component, relative and `../` images from
+ordinary user directories) and the remote block list. `LinkPolicyTests.swift` and
+`MarkdownRendererTests.swift` cover the navigation rules and the tag filters. `Samples/hostile.md`
+is the manual version.
 
 ## Accepted risks (known, by design)
 
@@ -67,6 +71,10 @@ ordinary user directories, not just the temp dir. `MDReaderTests/LinkPolicyTests
   GitHub avoids this with a proxy; a local app cannot. Turn off **View ▸ Load Remote Images**
   and the CSP drops `http:`/`https:` from `img-src`/`media-src`: the app then never contacts a
   server because of a document.
+- **Very large or pathological documents are a denial of service of the app**, not of the
+  system: the 64 MB cap stops cmark's abort-on-allocation-failure, but rendering still runs in
+  the app process, so a document engineered for worst-case parsing can hang or crash the whole
+  app rather than one window. Moving rendering to a separate process is future work.
 - **No App Sandbox.** The app runs with the user's normal file permissions (needed for
   live-reload of arbitrary paths, "Open in Terminal/Editor", set-as-default handler and
   relative resources next to the document). The WebContent process is still WebKit-sandboxed.
@@ -94,5 +102,6 @@ ordinary user directories, not just the temp dir. `MDReaderTests/LinkPolicyTests
 - [OpenSSF Scorecard](https://securityscorecards.dev/viewer/?uri=github.com/ljack/macos-md-reader)
   weekly.
 - GitHub secret scanning with push protection, Dependabot security updates.
-- `make ci` (build, unit tests including the hardening tests, launch smoke test) runs in the
-  `pre-push` hook and in GitHub Actions.
+- `make ci` (build, unit tests including the hardening and integration tests, launch smoke
+  test) runs in the `pre-push` hook and before every `--publish` release. GitHub Actions runs
+  the build and the unit tests; the launch smoke test is local only.

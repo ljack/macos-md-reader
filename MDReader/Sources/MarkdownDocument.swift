@@ -11,8 +11,22 @@ final class MarkdownDocument: NSDocument {
 
     // MARK: Reading
 
+    /// Hard ceiling on what is parsed. cmark aborts the process on allocation failure instead of
+    /// returning an error, so the limit has to be enforced before the bytes reach it.
+    static let maxDocumentBytes = 64 * 1024 * 1024
+
     override func read(from data: Data, ofType typeName: String) throws {
+        guard data.count <= Self.maxDocumentBytes else { throw Self.tooLarge(data.count) }
         text = Self.decode(data)
+    }
+
+    static func tooLarge(_ bytes: Int) -> NSError {
+        let mb = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        let limit = ByteCountFormatter.string(fromByteCount: Int64(maxDocumentBytes), countStyle: .file)
+        return NSError(domain: "MDReader", code: 413, userInfo: [
+            NSLocalizedDescriptionKey: "This file is \(mb); MD Reader opens Markdown up to \(limit).",
+            NSLocalizedRecoverySuggestionErrorKey: "Open it in a text editor instead.",
+        ])
     }
 
     private static func decode(_ data: Data) -> String {
@@ -46,7 +60,11 @@ final class MarkdownDocument: NSDocument {
     /// Re-reads the file. Returns true when content changed (or `force`).
     @discardableResult
     func reloadFromDisk(force: Bool) -> Bool {
-        guard let url = fileURL, let data = try? Data(contentsOf: url) else { return false }
+        guard let url = fileURL,
+              let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true,
+              (values.fileSize ?? 0) <= Self.maxDocumentBytes,
+              let data = try? Data(contentsOf: url) else { return false }
         let fresh = Self.decode(data)
         guard force || fresh != text else { return false }
         text = fresh

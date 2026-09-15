@@ -19,6 +19,7 @@ final class FileWatcher {
     private func start() {
         let fd = open(url.path, O_EVTONLY)
         guard fd >= 0 else { retryLater(); return }
+        let reattached = reopenAttempts > 0
         reopenAttempts = 0
         let src = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
@@ -36,6 +37,9 @@ final class FileWatcher {
         src.setCancelHandler { close(fd) }
         src.resume()
         source = src
+        // An atomic save can leave the path absent while the earlier reload ran; the new file
+        // is only known to exist now, so read it.
+        if reattached { scheduleFire() }
     }
 
     private func stop() {

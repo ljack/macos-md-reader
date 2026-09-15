@@ -55,7 +55,12 @@ enum GitHubFeedback {
     }
 
     static func submit(_ report: FeedbackReport, completion: @escaping (Result<Outcome, Error>) -> Void) {
-        guard let token = TokenStore.load(), !token.isEmpty else {
+        let stored: String?
+        do { stored = try TokenStore.load() } catch {
+            completion(.failure(error))
+            return
+        }
+        guard let token = stored, !token.isEmpty else {
             openInBrowser(report)
             completion(.success(.openedInBrowser))
             return
@@ -104,7 +109,17 @@ enum GitHubFeedback {
     }
 }
 
-/// Keychain-backed storage for the GitHub token.
+/// Keychain-backed storage for the GitHub token. Errors are reported, not swallowed: a locked
+/// or denied Keychain must not silently turn into "no token, open the browser instead".
+struct KeychainError: LocalizedError {
+    let status: OSStatus
+    let operation: String
+    var errorDescription: String? {
+        let message = SecCopyErrorMessageString(status, nil) as String? ?? "OSStatus \(status)"
+        return "Keychain \(operation) failed: \(message)"
+    }
+}
+
 enum TokenStore {
     private static let service = "fi.jarkkolietolahti.MDReader.github-token"
     private static let account = "github"
@@ -115,22 +130,46 @@ enum TokenStore {
          kSecAttrAccount as String: account]
     }
 
-    static func load() -> String? {
+    /// `nil` when no token is stored. Throws for any other Keychain outcome.
+    static func load() throws -> String? {
         var q = query
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        let status = SecItemCopyMatching(q as CFDictionary, &item)
+        switch status {
+        case errSecSuccess:
+            guard let data = item as? Data else { throw KeychainError(status: errSecDecode, operation: "read") }
+            return String(data: data, encoding: .utf8)
+        case errSecItemNotFound:
+            return nil
+        default:
+            throw KeychainError(status: status, operation: "read")
+        }
     }
 
-    static func save(_ token: String) {
+    /// Empty string removes the token. Updates in place so a failed write never loses the old value.
+    static func save(_ token: String) throws {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        SecItemDelete(query as CFDictionary)
-        guard !trimmed.isEmpty else { return }
-        var q = query
-        q[kSecValueData as String] = Data(trimmed.utf8)
-        SecItemAdd(q as CFDictionary, nil)
+        if trimmed.isEmpty {
+            let status = SecItemDelete(query as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw KeychainError(status: status, operation: "delete")
+            }
+            return
+        }
+        let value = [kSecValueData as String: Data(trimmed.utf8)]
+        let update = SecItemUpdate(query as CFDictionary, value as CFDictionary)
+        switch update {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            var q = query
+            q[kSecValueData as String] = Data(trimmed.utf8)
+            let add = SecItemAdd(q as CFDictionary, nil)
+            guard add == errSecSuccess else { throw KeychainError(status: add, operation: "save") }
+        default:
+            throw KeychainError(status: update, operation: "update")
+        }
     }
 }

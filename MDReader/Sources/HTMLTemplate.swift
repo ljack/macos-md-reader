@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import WebKit
 
 enum HTMLTemplate {
     private static let css = load("preview", "css")
@@ -96,4 +97,38 @@ enum RemoteContent {
     }
 
     static func toggle() { isEnabled.toggle() }
+}
+
+/// Second, independent layer for "Load Remote Images: off": a WebKit content rule list that
+/// blocks every http(s)/ws(s) load in the web view, whatever kind of element asked for it
+/// (including `<link rel=preconnect>`-style hints the CSP does not govern). Compiled once at
+/// launch; `apply` attaches or detaches it before each page load.
+enum RemoteContentBlocker {
+    static let ready = Notification.Name("MDReader.remoteContentBlockerReady")
+    static let identifier = "MDReader.block-remote-v1"
+    // WebKit's rule regex dialect has no alternation, so one rule per scheme.
+    static let rules = """
+    [{"trigger": {"url-filter": "^http://"},  "action": {"type": "block"}},
+     {"trigger": {"url-filter": "^https://"}, "action": {"type": "block"}},
+     {"trigger": {"url-filter": "^ws://"},    "action": {"type": "block"}},
+     {"trigger": {"url-filter": "^wss://"},   "action": {"type": "block"}}]
+    """
+    private(set) static var ruleList: WKContentRuleList?
+
+    static func compile(completion: ((WKContentRuleList?) -> Void)? = nil) {
+        if let ruleList { completion?(ruleList); return }
+        WKContentRuleListStore.default().compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: rules) { list, error in
+            if let error { NSLog("RemoteContentBlocker: compile failed: %@", String(describing: error)) }
+            ruleList = list
+            completion?(list)
+            if list != nil { NotificationCenter.default.post(name: ready, object: nil) }
+        }
+    }
+
+    /// Attach the block list when remote content is off, detach otherwise.
+    static func apply(to webView: WKWebView, remoteEnabled: Bool = RemoteContent.isEnabled) {
+        let controller = webView.configuration.userContentController
+        controller.removeAllContentRuleLists()
+        if !remoteEnabled, let ruleList { controller.add(ruleList) }
+    }
 }
