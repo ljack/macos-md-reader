@@ -27,7 +27,7 @@ targets:
       properties:
         CFBundleName: MD Reader
         CFBundleDisplayName: MD Reader
-        CFBundleShortVersionString: "0.1.5"
+        CFBundleShortVersionString: "0.1.6"
         CFBundleVersion: "1"
         LSApplicationCategoryType: public.app-category.productivity
         NSAppleEventsUsageDescription: MD Reader asks iTerm2 or Terminal which tab is working in the document's folder so "Go to Terminal Session" can bring it to the front.
