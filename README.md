@@ -53,7 +53,7 @@ macOS has no built-in way to *read* Markdown. Quick Look shows raw text. Editors
 - YAML front matter rendered as a compact metadata table.
 - Heading anchors: `[link](#section)` works the way it does on GitHub.
 - Relative images resolve next to the file. Relative `.md` links open in a new window or tab. External links open in your browser.
-- ⌘F find with next / previous, ⌘+ / ⌘− / ⌘0 zoom (remembered), ⌘P print with sensible margins.
+- ⌘F find with next / previous, ⌘+ / ⌘− / ⌘0 and trackpad pinch zoom in both directions, 50–300 %, remembered, ⌘P print with sensible margins.
 
 ### Live reload
 

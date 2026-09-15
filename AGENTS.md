@@ -39,7 +39,7 @@ xcodebuild -scheme MDReader -configuration Debug -derivedDataPath build/DerivedD
 
 ## Verifying the running app (no human at the keyboard)
 
-Accessibility scripting works on this machine for menus and windows:
+Accessibility scripting works on this machine for menus and windows. Run it from an unsandboxed shell: inside the Claude Code Bash sandbox, System Events clicks and `defaults read` of the app domain silently return nothing.
 
 ```bash
 open -a "build/DerivedData/Build/Products/Debug/MD Reader.app" "$PWD/Samples/demo.md"

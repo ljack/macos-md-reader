@@ -23,12 +23,12 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
     // MARK: View
 
     override func loadView() {
-        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 840),
-                            configuration: PreviewWebView.makeConfiguration())
+        let web = ZoomingWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 840),
+                                 configuration: PreviewWebView.makeConfiguration())
         web.navigationDelegate = self
         web.uiDelegate = self
         web.setValue(false, forKey: "drawsBackground")
-        web.allowsMagnification = true
+        web.allowsMagnification = false  // pinch is handled by ZoomingWebView
         web.allowsBackForwardNavigationGestures = false
         web.pageZoom = Zoom.current
         web.translatesAutoresizingMaskIntoConstraints = false
@@ -172,24 +172,38 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
 enum Zoom {
     static let changed = Notification.Name("MDReader.zoomChanged")
     private static let key = "pageZoom"
-    private static let levels: [CGFloat] = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
+    static let levels: [CGFloat] = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
+    static var minimum: CGFloat { levels.first! }
+    static var maximum: CGFloat { levels.last! }
 
     static var current: CGFloat {
         let v = UserDefaults.standard.double(forKey: key)
-        return v > 0 ? CGFloat(v) : 1.0
+        return v > 0 ? clamped(CGFloat(v)) : 1.0
     }
 
-    static func step(_ direction: Int) {
-        let cur = current
-        let idx = levels.firstIndex(where: { abs($0 - cur) < 0.01 }) ?? 5
-        let next = levels[max(0, min(levels.count - 1, idx + direction))]
-        set(next)
+    /// Next preset above (+1) or below (-1) `value`; a pinched-in value between presets snaps to
+    /// the neighbouring preset in that direction, so ⌘+/⌘- always visibly changes something.
+    static func stepped(from value: CGFloat, _ direction: Int) -> CGFloat {
+        let v = clamped(value)
+        if direction > 0 { return levels.first(where: { $0 > v + 0.005 }) ?? maximum }
+        return levels.last(where: { $0 < v - 0.005 }) ?? minimum
     }
+
+    /// Scale after a pinch: `magnification` is the per-event delta from `NSEvent.magnification`.
+    static func pinched(from value: CGFloat, by magnification: CGFloat) -> CGFloat {
+        clamped(value * (1 + magnification))
+    }
+
+    static func clamped(_ value: CGFloat) -> CGFloat {
+        min(maximum, max(minimum, value))
+    }
+
+    static func step(_ direction: Int) { set(stepped(from: current, direction)) }
 
     static func reset() { set(1.0) }
 
-    private static func set(_ value: CGFloat) {
-        UserDefaults.standard.set(Double(value), forKey: key)
+    static func set(_ value: CGFloat) {
+        UserDefaults.standard.set(Double(clamped(value)), forKey: key)
         NotificationCenter.default.post(name: changed, object: nil)
     }
 }
