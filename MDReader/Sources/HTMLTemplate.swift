@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 enum HTMLTemplate {
     private static let css = load("preview", "css")
@@ -11,12 +12,48 @@ enum HTMLTemplate {
         _ = css; _ = js; _ = hljs; _ = hljsLight; _ = hljsDark
     }
 
-    static func page(body: String) -> String {
+    /// Content Security Policy for the preview page. The rendered Markdown is untrusted:
+    /// it may carry raw HTML (`CMARK_OPT_UNSAFE`, like GitHub). Only the app's own scripts run
+    /// (nonce), nothing may fetch/XHR, frame, embed, submit forms or change the base URL.
+    /// Images and media may load from disk (relative paths next to the document) and, when
+    /// `allowRemote` (View ▸ Load Remote Images), from http(s) so badges and hosted images work.
+    /// Remote loads reveal the reader's IP address to the image host. See SECURITY.md.
+    static func contentSecurityPolicy(nonce: String, allowRemote: Bool = RemoteContent.isEnabled) -> String {
+        let local = "file: data: blob:"
+        let sources = allowRemote ? local + " https: http:" : local
+        return [
+            "default-src 'none'",
+            "script-src 'nonce-\(nonce)'",
+            "style-src 'unsafe-inline'",
+            "img-src \(sources)",
+            "media-src \(sources)",
+            "font-src file: data:",
+            "connect-src 'none'",
+            "object-src 'none'",
+            "frame-src 'none'",
+            "child-src 'none'",
+            "worker-src 'none'",
+            "base-uri 'none'",
+            "form-action 'none'",
+        ].joined(separator: "; ")
+    }
+
+    /// 128-bit random nonce, base64. New one per page load so document content can never guess it.
+    static func makeNonce() -> String {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        if SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) != errSecSuccess {
+            bytes = bytes.map { _ in UInt8.random(in: 0...255) }
+        }
+        return Data(bytes).base64EncodedString()
+    }
+
+    static func page(body: String, nonce: String = makeNonce(), allowRemote: Bool = RemoteContent.isEnabled) -> String {
         """
         <!DOCTYPE html>
         <html>
         <head>
         <meta charset="utf-8">
+        <meta http-equiv="Content-Security-Policy" content="\(contentSecurityPolicy(nonce: nonce, allowRemote: allowRemote))">
         <meta name="color-scheme" content="light dark">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>\(css)</style>
@@ -27,8 +64,8 @@ enum HTMLTemplate {
         </head>
         <body>
         <article id="content" class="markdown-body">\(body)</article>
-        <script>\(hljs)</script>
-        <script>\(js)</script>
+        <script nonce="\(nonce)">\(hljs)</script>
+        <script nonce="\(nonce)">\(js)</script>
         </body>
         </html>
         """
@@ -39,4 +76,23 @@ enum HTMLTemplate {
               let s = try? String(contentsOf: url, encoding: .utf8) else { return "" }
         return s
     }
+}
+
+// MARK: - Remote content preference
+
+/// View ▸ Load Remote Images. On by default. Off makes the CSP refuse http(s) images and media,
+/// so a document cannot make the app contact any server.
+enum RemoteContent {
+    static let changed = Notification.Name("MDReader.remoteContentChanged")
+    private static let key = "loadRemoteImages"
+
+    static var isEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        set {
+            UserDefaults.standard.set(newValue, forKey: key)
+            NotificationCenter.default.post(name: changed, object: nil)
+        }
+    }
+
+    static func toggle() { isEnabled.toggle() }
 }

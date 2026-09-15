@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # Keeps the SHA-pinned actions in .github/workflows current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  # swift-cmark is pinned by revision in project.yml (no Package.swift), so Dependabot cannot
+  # track it. Bump it by hand: see AGENTS.md "Dependencies".

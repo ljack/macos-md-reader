@@ -23,13 +23,8 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
     // MARK: View
 
     override func loadView() {
-        let config = WKWebViewConfiguration()
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        config.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
-
-        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 840), configuration: config)
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 840),
+                            configuration: PreviewWebView.makeConfiguration())
         web.navigationDelegate = self
         web.uiDelegate = self
         web.setValue(false, forKey: "drawsBackground")
@@ -62,6 +57,7 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
     override func viewDidLoad() {
         super.viewDidLoad()
         NotificationCenter.default.addObserver(self, selector: #selector(zoomChanged), name: Zoom.changed, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(remoteContentChanged), name: RemoteContent.changed, object: nil)
         loadFullPage()
     }
 
@@ -71,7 +67,7 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
         pageLoaded = false
         let result = MarkdownRenderer.render(document.text)
         let page = HTMLTemplate.page(body: result.html)
-        webView.loadHTMLString(page, baseURL: document.fileURL?.deletingLastPathComponent())
+        webView.loadHTMLString(page, baseURL: baseURL)
     }
 
     private func pushUpdate() {
@@ -101,6 +97,11 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
         webView.pageZoom = Zoom.current
     }
 
+    /// The CSP lives in the page head, so a policy change needs a full reload.
+    @objc private func remoteContentChanged() {
+        loadFullPage()
+    }
+
     @objc func showFind(_ sender: Any?) { findBar.show() }
     @objc func findNext(_ sender: Any?) { findBar.find(backwards: false) }
     @objc func findPrevious(_ sender: Any?) { findBar.find(backwards: true) }
@@ -114,48 +115,40 @@ final class PreviewViewController: NSViewController, WKNavigationDelegate, WKUID
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        guard navigationAction.navigationType == .linkActivated,
-              let url = navigationAction.request.url else {
-            decisionHandler(.allow)
-            return
-        }
-
-        // In-page anchors resolve against the base (directory) URL.
-        if url.isFileURL, url.fragment != nil, var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            comps.fragment = nil
-            if let base = document.fileURL?.deletingLastPathComponent(),
-               comps.url?.standardizedFileURL.path == base.standardizedFileURL.path {
-                decisionHandler(.allow)
-                return
-            }
-        }
-
+        guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
+        let action = LinkPolicy.action(for: url,
+                                       isLinkClick: navigationAction.navigationType == .linkActivated,
+                                       base: baseURL)
+        if action == .allowInPage { decisionHandler(.allow); return }
         decisionHandler(.cancel)
-        if url.isFileURL {
-            if Self.isMarkdown(url) {
-                NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
-                    if let error { NSAlert(error: error).runModal() }
-                }
-            } else {
-                NSWorkspace.shared.open(url)
-            }
-        } else {
-            NSWorkspace.shared.open(url)
-        }
+        perform(action)
     }
 
-    // MARK: WKUIDelegate (target=_blank etc.)
+    // MARK: WKUIDelegate (target=_blank, window.open)
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if let url = navigationAction.request.url { NSWorkspace.shared.open(url) }
+        if let url = navigationAction.request.url {
+            perform(LinkPolicy.action(for: url, isLinkClick: true, base: baseURL))
+        }
         return nil
     }
 
-    private static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkdn", "mkd", "mdwn", "mdtxt", "mdtext", "txt"]
+    private var baseURL: URL? { document.fileURL?.deletingLastPathComponent() }
 
-    private static func isMarkdown(_ url: URL) -> Bool {
-        markdownExtensions.contains(url.pathExtension.lowercased())
+    private func perform(_ action: LinkPolicy.Action) {
+        switch action {
+        case .allowInPage, .block:
+            break
+        case .openMarkdown(let url):
+            NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
+                if let error { NSAlert(error: error).runModal() }
+            }
+        case .openFile(let url), .openExternal(let url):
+            NSWorkspace.shared.open(url)
+        case .revealFile(let url):
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
     }
 }
 

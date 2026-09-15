@@ -1,0 +1,35 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1" # weekly, Monday 04:17 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze Swift
+    runs-on: macos-15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - uses: github/codeql-action/init@42c378ffbb438be29e3e1848d520fb0a8ee1c271 # v3.38.0
+        with:
+          languages: swift
+          queries: security-extended
+      - name: Build for analysis
+        run: |
+          xcodegen generate
+          xcodebuild -scheme MDReader -configuration Debug -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO build
+      - uses: github/codeql-action/analyze@42c378ffbb438be29e3e1848d520fb0a8ee1c271 # v3.38.0
+        with:
+          category: "/language:swift"

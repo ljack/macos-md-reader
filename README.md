@@ -15,6 +15,9 @@
   <img src="https://img.shields.io/badge/Apple%20Silicon-native-black?logo=apple" alt="Apple Silicon">
   <img src="https://img.shields.io/badge/signed-notarized-2ea44f" alt="Notarized">
   <img src="https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white" alt="Swift">
+  <a href="https://github.com/ljack/macos-md-reader/actions/workflows/ci.yml"><img src="https://github.com/ljack/macos-md-reader/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ljack/macos-md-reader/actions/workflows/codeql.yml"><img src="https://github.com/ljack/macos-md-reader/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+  <a href="https://securityscorecards.dev/viewer/?uri=github.com/ljack/macos-md-reader"><img src="https://api.securityscorecards.dev/projects/github.com/ljack/macos-md-reader/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
 <p align="center">
@@ -147,6 +150,14 @@ make release   # sign, notarize, staple, GitHub release, cask + tap update
 Every build stamps provenance into `Info.plist`: git commit (with `-dirty` when uncommitted), branch, UTC build date, and the commit count as build number. **About MD Reader** shows it with a link to the commit. Releases are cut only from clean trees, tagged at the exact commit, and the release notes carry the zip's sha256, which the Homebrew cask pins. So any installed copy can be traced back to its source.
 
 Agents and contributors: see [AGENTS.md](AGENTS.md).
+
+## Security
+
+Every Markdown file is treated as hostile input: raw HTML is rendered like on GitHub, but a strict Content Security Policy stops document scripts, fetches, frames and forms, and every link click goes through an allow-list before anything outside the app is touched. Remote images load by default like in a browser; **View ▸ Load Remote Images** turns them off so a document can never make the app contact a server. The threat model, the mechanisms, the accepted risks and how to report a problem are in [SECURITY.md](SECURITY.md). `Samples/hostile.md` is a self-check you can open.
+
+## Contributing
+
+Issues and pull requests are welcome. [AGENTS.md](AGENTS.md) has the build, test and definition-of-done rules; `make ci` must be green before pushing (the `pre-push` hook enforces it).
 
 ## Roadmap
 

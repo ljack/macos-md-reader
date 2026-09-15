@@ -69,6 +69,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(URL(string: "https://github.com/\(GitHubFeedback.owner)/\(GitHubFeedback.repo)")!)
     }
 
+    @objc func toggleRemoteImages(_ sender: Any?) {
+        RemoteContent.toggle()
+        (sender as? NSMenuItem)?.state = RemoteContent.isEnabled ? .on : .off
+    }
+
     @objc func toggleStatusItem(_ sender: Any?) {
         statusItemController?.toggleVisibility(sender)
         (sender as? NSMenuItem)?.state = StatusItemController.isEnabled ? .on : .off

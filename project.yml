@@ -7,7 +7,9 @@ options:
 packages:
   swift-cmark:
     url: https://github.com/swiftlang/swift-cmark
-    branch: gfm
+    # gfm branch, pinned. Bump by hand: check the branch, update the SHA, run `make ci`.
+    # 2026-07-30
+    revision: 7898f1b3e4befeecee56cb4a3bc8eebd2cb63219
 targets:
   MDReader:
     type: application

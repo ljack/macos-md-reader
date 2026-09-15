@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build and test (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # Scripts/stamp-build.sh derives the build number from git history
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Build (Debug)
+        run: make build
+      - name: Unit tests
+        run: make test

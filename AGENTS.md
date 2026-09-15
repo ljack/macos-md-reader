@@ -31,7 +31,8 @@ xcodebuild -scheme MDReader -configuration Debug -derivedDataPath build/DerivedD
 ## Definition of done for a change
 
 1. `make ci` is green.
-2. New logic in `MarkdownRenderer`, `FrontMatter`, `RecentFilesStore`, `WindowActions`, `BuildInfo` or anything else without UI has a unit test in `MDReaderTests/`.
+2. New logic in `MarkdownRenderer`, `FrontMatter`, `RecentFilesStore`, `WindowActions`, `BuildInfo`, `LinkPolicy` or anything else without UI has a unit test in `MDReaderTests/`.
+   Anything touching `HTMLTemplate`, `PreviewWebView`, `LinkPolicy` or the WebKit delegates is security-relevant: keep `WebViewHardeningTests` and `LinkPolicyTests` green, open `Samples/hostile.md`, and update `SECURITY.md` if a promise changes.
 3. UI changes were launched and looked at (screenshot or accessibility inspection), not just compiled.
 4. Commit message: imperative subject ≤ 72 chars, body explains why. Conventional prefixes not required.
 5. Nothing under `build/`, `.claude/` or `*.xcodeproj` is committed (`pre-commit` blocks it).
@@ -65,6 +66,16 @@ To check an installed copy:
 ```bash
 /usr/libexec/PlistBuddy -c "Print :GitCommit" "/Applications/MD Reader.app/Contents/Info.plist"
 ```
+
+## Security model (short)
+
+The document is hostile input. Three layers, all with tests: cmark `tagfilter`, a per-load CSP nonce in `HTMLTemplate` (no document scripts, no fetch, no frames, no forms), and `LinkPolicy` deciding what a click may open (web/mail → default handler, `.md` → new document, images/PDF/text → their app, anything launchable → only revealed in Finder; non-click navigations dropped). Do not add `allowFileAccessFromFileURLs`, `allowUniversalAccessFromFileURLs`, `'unsafe-inline'` for scripts, or an `NSWorkspace.open` that bypasses `LinkPolicy`. Full write-up: `SECURITY.md`.
+
+## Dependencies
+
+- `swift-cmark` is pinned by `revision:` in `project.yml`. To bump: look at the `gfm` branch, set the new SHA and its date in the comment, `make ci`, and mention the date in the commit body. Dependabot cannot see it (no `Package.swift`).
+- GitHub Actions in `.github/workflows` are SHA-pinned with a `# vX.Y.Z` comment; Dependabot updates them weekly.
+- `highlight.min.js` is vendored; update by replacing the file and noting the version in the commit.
 
 ## Gotchas learned the hard way
 

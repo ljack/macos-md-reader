@@ -1,0 +1,102 @@
+import XCTest
+@testable import MDReader
+
+final class LinkPolicyTests: XCTestCase {
+    private var dir: URL!
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("LinkPolicyTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    private func file(_ name: String, executable: Bool = false) throws -> URL {
+        let url = dir.appendingPathComponent(name)
+        try Data("x".utf8).write(to: url)
+        if executable {
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+        return url
+    }
+
+    private func click(_ url: URL) -> LinkPolicy.Action { LinkPolicy.action(for: url, isLinkClick: true, base: dir) }
+
+    // MARK: Initial load and anchors
+
+    func testInitialLoadOfBaseDirectoryIsAllowed() {
+        XCTAssertEqual(LinkPolicy.action(for: dir, isLinkClick: false, base: dir), .allowInPage)
+        XCTAssertEqual(LinkPolicy.action(for: URL(string: "about:blank")!, isLinkClick: false, base: nil), .allowInPage)
+    }
+
+    func testInPageAnchorClickIsAllowed() {
+        let anchor = URL(string: "#section-2", relativeTo: dir)!.absoluteURL
+        XCTAssertEqual(click(anchor), .allowInPage)
+    }
+
+    func testNonClickNavigationsAreBlocked() {
+        // <meta http-equiv="refresh">, form posts, JS location changes.
+        XCTAssertEqual(LinkPolicy.action(for: URL(string: "https://evil.example/")!, isLinkClick: false, base: dir), .block)
+        XCTAssertEqual(LinkPolicy.action(for: URL(fileURLWithPath: "/etc/passwd"), isLinkClick: false, base: dir), .block)
+    }
+
+    // MARK: External schemes
+
+    func testWebAndMailLinksOpenExternally() {
+        let https = URL(string: "https://example.com/a?b=c")!
+        XCTAssertEqual(click(https), .openExternal(https))
+        let mail = URL(string: "mailto:a@example.com")!
+        XCTAssertEqual(click(mail), .openExternal(mail))
+    }
+
+    func testOtherSchemesAreBlocked() {
+        for s in ["javascript:alert(1)", "x-apple.systempreferences:com.apple.preference.security",
+                  "ssh://host", "tel:+358", "vscode://file/etc/passwd", "data:text/html,hi", "ftp://x/y"] {
+            XCTAssertEqual(click(URL(string: s)!), .block, s)
+        }
+    }
+
+    // MARK: Files
+
+    func testMarkdownOpensAsDocument() throws {
+        let md = try file("other.md")
+        XCTAssertEqual(click(md), .openMarkdown(md))
+        let missing = dir.appendingPathComponent("missing.markdown")
+        XCTAssertEqual(click(missing), .openMarkdown(missing))
+    }
+
+    func testBenignDocumentsOpenInDefaultApp() throws {
+        for name in ["pic.png", "doc.pdf", "clip.mp4", "notes.json", "page.html"] {
+            let url = try file(name)
+            XCTAssertEqual(click(url), .openFile(url), name)
+        }
+        XCTAssertEqual(click(dir), .openFile(dir))
+    }
+
+    func testLaunchableFilesAreOnlyRevealed() throws {
+        for name in ["run.command", "run.sh", "tool.py", "Thing.app", "x.scpt", "site.webloc",
+                     "bundle.jar", "arc.zip", "disk.dmg", "pkg.pkg", "flow.workflow", "term.terminal"] {
+            let url = try file(name)
+            XCTAssertEqual(click(url), .revealFile(url), name)
+        }
+    }
+
+    func testExecutableBitIsOnlyRevealedEvenWithBenignExtension() throws {
+        let url = try file("readme.txt.png", executable: true)
+        XCTAssertEqual(click(url), .revealFile(url))
+    }
+
+    func testSymlinkIsOnlyRevealed() throws {
+        let target = try file("target.png")
+        let link = dir.appendingPathComponent("link.png")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        XCTAssertEqual(click(link), .revealFile(link))
+    }
+
+    func testUnknownExtensionIsOnlyRevealed() throws {
+        let url = try file("mystery.qqqzzz")
+        XCTAssertEqual(click(url), .revealFile(url))
+    }
+}

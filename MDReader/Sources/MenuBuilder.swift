@@ -73,6 +73,11 @@ enum MenuBuilder {
         view.addItem(withTitle: "Zoom In", action: #selector(PreviewViewController.zoomIn(_:)), keyEquivalent: "=")
         view.addItem(withTitle: "Zoom Out", action: #selector(PreviewViewController.zoomOut(_:)), keyEquivalent: "-")
         view.addItem(.separator())
+        let remote = view.addItem(withTitle: "Load Remote Images",
+                                  action: #selector(AppDelegate.toggleRemoteImages(_:)), keyEquivalent: "")
+        remote.state = RemoteContent.isEnabled ? .on : .off
+        remote.toolTip = "Off: images and media from http(s) are not fetched, so a document cannot reveal your IP address."
+        view.addItem(.separator())
         let fullScreen = view.addItem(withTitle: "Enter Full Screen",
                                       action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         fullScreen.keyEquivalentModifierMask = [.command, .control]
