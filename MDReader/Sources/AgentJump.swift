@@ -9,7 +9,7 @@ enum AgentJump {
     enum Keys {
         static let launcher = "agentLauncher"      // AgentSession.Host raw value
         static let preset = "agentTeerminalPreset" // Teerminal preset slug
-        static let command = "agentCommand"        // shell command for iTerm2 / Terminal
+        static let command = "agentCommand"        // harness command: tmux run / iTerm2 / Terminal
     }
 
     static var teerminalInstalled: Bool {
@@ -21,6 +21,7 @@ enum AgentJump {
             if let raw = UserDefaults.standard.string(forKey: Keys.launcher), let host = AgentSession.Host(rawValue: raw) {
                 return host
             }
+            if TeerminalTmux.isAvailable { return .tmux }
             if teerminalInstalled { return .teerminal }
             return MarkdownDocument.iTermURL != nil ? .iterm2 : .terminal
         }
@@ -39,7 +40,8 @@ enum AgentJump {
 
     /// Every live session from every host that can be asked, Teerminal first (cheapest, no consent).
     static func liveSessions() -> [AgentSession] {
-        TeerminalManifest.liveSessions() + TerminalScripting.iTermSessions() + TerminalScripting.terminalSessions()
+        AgentSession.deduplicated(TeerminalManifest.liveSessions() + TeerminalTmux.liveSessions()
+            + TerminalScripting.iTermSessions() + TerminalScripting.terminalSessions())
     }
 
     /// Runs off the main thread (Apple Events and /proc walks can take a moment), then focuses or opens.
@@ -48,15 +50,15 @@ enum AgentJump {
         let dir = fileURL.deletingLastPathComponent().path
         DispatchQueue.global(qos: .userInitiated).async {
             let sessions = liveSessions()
-            log.info("go: \(path, privacy: .public) candidates \(sessions.map { "\($0.host.rawValue):\($0.id.prefix(8))@\($0.directory)" }.joined(separator: ", "), privacy: .public)")
+            log.notice("go: \(path, privacy: .public) candidates \(sessions.map { "\($0.host.rawValue):\($0.id.prefix(8))@\($0.directory)" }.joined(separator: ", "), privacy: .public)")
             if let scriptError = TerminalScripting.lastError { log.error("apple events: \(scriptError, privacy: .public)") }
             let result: Result<String, Error>
             if let hit = AgentSession.best(for: path, among: sessions) {
-                log.info("focus \(hit.host.rawValue, privacy: .public) \(hit.id, privacy: .public)")
+                log.notice("focus \(hit.host.rawValue, privacy: .public) \(hit.id, privacy: .public)")
                 result = focus(hit) ? .success("Switched to \(hit.title.isEmpty ? hit.host.displayName : hit.title)")
                     : .failure(failure("Could not focus the \(hit.host.displayName) session.", TerminalScripting.lastError))
             } else {
-                log.info("no session for \(dir, privacy: .public); opening via \(launcher.rawValue, privacy: .public)")
+                log.notice("no session for \(dir, privacy: .public); opening via \(launcher.rawValue, privacy: .public)")
                 result = open(directory: dir)
             }
             DispatchQueue.main.async { completion(result) }
@@ -70,12 +72,25 @@ enum AgentJump {
             return NSWorkspace.shared.open(url)
         case .iterm2, .terminal:
             return TerminalScripting.focus(session)
+        case .tmux:
+            // A tab already viewing it wins; otherwise attach a fresh view in a new terminal window.
+            if TerminalScripting.focusViewer(ofTmuxSession: session.id) { return true }
+            return TerminalScripting.openWindow(host: TerminalScripting.preferredTerminal,
+                                                running: TeerminalTmux.attachCommand(session.id))
         }
     }
 
     static func open(directory: String) -> Result<String, Error> {
         let host = launcher
         switch host {
+        case .tmux:
+            guard TeerminalTmux.isAvailable else {
+                return .failure(failure("teerminalctl was not found.", "Looked in " + TeerminalTmux.candidatePaths.joined(separator: ", ")))
+            }
+            let terminal = TerminalScripting.preferredTerminal
+            let ok = TerminalScripting.openWindow(host: terminal, running: TeerminalTmux.runCommand(directory: directory, command: command))
+            return ok ? .success("Started persistent \(command.isEmpty ? "shell" : command) in \(terminal.displayName)")
+                : .failure(failure("\(terminal.displayName) did not open a session.", TerminalScripting.lastError))
         case .teerminal:
             guard teerminalInstalled else { return .failure(failure("Teerminal is not installed.", nil)) }
             guard let url = TeerminalManifest.openURL(directory: directory, preset: preset),

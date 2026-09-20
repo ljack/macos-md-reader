@@ -3,11 +3,12 @@ import Foundation
 /// A live terminal session that may be working in the directory of the open document.
 struct AgentSession: Equatable {
     enum Host: String, CaseIterable {
-        case teerminal, iterm2, terminal
+        case tmux, teerminal, iterm2, terminal
 
         var displayName: String {
             switch self {
-            case .teerminal: return "Teerminal"
+            case .tmux: return "Teerminal tmux (persistent)"
+            case .teerminal: return "Teerminal app preset"
             case .iterm2: return "iTerm2"
             case .terminal: return "Terminal"
             }
@@ -21,6 +22,18 @@ struct AgentSession: Equatable {
     var title: String
     var lastActivity: Date?
     var isActive: Bool
+    /// For an iTerm2 / Terminal tab: the Teerminal tmux session it is attached to, if any.
+    var viewsTmuxSession: String? = nil
+
+    /// Drops tmux entries the Teerminal app already lists (it focuses those itself) and terminal tabs
+    /// that are just viewers of a tmux session (the tmux entry stands for the work).
+    static func deduplicated(_ sessions: [AgentSession]) -> [AgentSession] {
+        let appIDs = Set(sessions.filter { $0.host == .teerminal }.map { $0.id.lowercased() })
+        return sessions.filter { s in
+            if s.host == .tmux { return !appIDs.contains(s.id.lowercased()) }
+            return s.viewsTmuxSession == nil
+        }
+    }
 
     /// The session whose directory is the deepest ancestor of `filePath`; ties go to the most
     /// recently active, then the currently selected one. `nil` when no session contains the file.

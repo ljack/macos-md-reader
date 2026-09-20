@@ -57,8 +57,10 @@ enum TerminalScripting {
             let parts = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard parts.count >= 2 else { return [] }
             let title = parts.count > 2 ? parts[2] : ""
+            let viewer = attachedTmuxSession(onTTY: parts[1])
             return workingDirectories(onTTY: parts[1]).map {
-                AgentSession(host: host, id: parts[0], directory: $0, title: title, lastActivity: nil, isActive: false)
+                AgentSession(host: host, id: parts[0], directory: $0, title: title, lastActivity: nil,
+                             isActive: false, viewsTmuxSession: viewer)
             }
         }
     }
@@ -98,13 +100,28 @@ enum TerminalScripting {
                 return "ok"
             end tell
             """) == "ok"
-        case .teerminal:
+        case .teerminal, .tmux:
             return false
         }
     }
 
     static func openNew(host: AgentSession.Host, directory: String, command: String) -> Bool {
-        let shellLine = "cd \(shellQuoted(directory))" + (command.isEmpty ? "" : " && \(command)")
+        openWindow(host: host, running: "cd \(shellQuoted(directory))" + (command.isEmpty ? "" : " && \(command)"))
+    }
+
+    /// The terminal app used for windows MD Reader opens itself (tmux attach / run): iTerm2 when installed.
+    static var preferredTerminal: AgentSession.Host {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: iTermBundleID) != nil ? .iterm2 : .terminal
+    }
+
+    /// Focus the iTerm2 / Terminal tab that is attached to tmux session `id`, if there is one.
+    static func focusViewer(ofTmuxSession id: String) -> Bool {
+        let all = iTermSessions() + terminalSessions()
+        guard let tab = all.first(where: { $0.viewsTmuxSession == id.lowercased() }) else { return false }
+        return focus(tab)
+    }
+
+    static func openWindow(host: AgentSession.Host, running shellLine: String) -> Bool {
         switch host {
         case .iterm2:
             return run("""
@@ -123,7 +140,7 @@ enum TerminalScripting {
                 return "ok"
             end tell
             """) == "ok"
-        case .teerminal:
+        case .teerminal, .tmux:
             return false
         }
     }
@@ -160,6 +177,68 @@ enum TerminalScripting {
               info.e_tdev != 0, info.e_tdev != UInt32.max,
               let name = devname(dev_t(bitPattern: info.e_tdev), mode_t(S_IFCHR)) else { return nil }
         return "/dev/" + String(cString: name)
+    }
+
+    /// Current directory of one process (libproc), nil when it cannot be read.
+    static func workingDirectory(ofPID pid: pid_t) -> String? {
+        var vnode = proc_vnodepathinfo()
+        let vsize = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &vnode, vsize) == vsize else { return nil }
+        let path = withUnsafePointer(to: &vnode.pvi_cdir.vip_path) {
+            $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
+        }
+        return path.isEmpty ? nil : path
+    }
+
+    /// argv of a process via sysctl KERN_PROCARGS2 (same-user processes only).
+    static func arguments(ofPID pid: pid_t) -> [String] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return [] }
+        let argc = Int(buffer.withUnsafeBytes { $0.load(as: Int32.self) })
+        var fields = buffer[MemoryLayout<Int32>.size..<size].split(separator: 0, omittingEmptySubsequences: false)
+            .map { String(decoding: $0, as: UTF8.self) }
+        guard !fields.isEmpty else { return [] }
+        fields.removeFirst()                      // executable path
+        fields = Array(fields.drop { $0.isEmpty }) // padding after it
+        return Array(fields.prefix(argc))
+    }
+
+    /// PIDs whose controlling terminal is `tty`.
+    static func pids(onTTY tty: String) -> [pid_t] {
+        var st = stat()
+        guard stat(tty, &st) == 0 else { return [] }
+        let dev = UInt32(bitPattern: st.st_rdev)
+        var count = proc_listallpids(nil, 0)
+        guard count > 0 else { return [] }
+        var pids = [pid_t](repeating: 0, count: Int(count) + 64)
+        count = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+        return pids.prefix(Int(count)).filter { pid in
+            guard pid > 0 else { return false }
+            var info = proc_bsdinfo()
+            let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+            return proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size && info.e_tdev == dev
+        }
+    }
+
+    /// The Teerminal tmux session id a `tmux attach` client on `tty` is viewing, if any.
+    static func attachedTmuxSession(onTTY tty: String) -> String? {
+        for pid in pids(onTTY: tty) {
+            if let id = tmuxSessionID(fromArguments: arguments(ofPID: pid)) { return id }
+        }
+        return nil
+    }
+
+    /// `tmux … attach-session -t =teerminal-<uuid>` (Teerminal) or `tmux attach -t teerminal-<uuid>` → uuid.
+    static func tmuxSessionID(fromArguments args: [String]) -> String? {
+        guard let first = args.first, (first as NSString).lastPathComponent == "tmux" else { return nil }
+        for arg in args {
+            let name = arg.hasPrefix("=") ? String(arg.dropFirst()) : arg
+            if name.hasPrefix("teerminal-") { return String(name.dropFirst("teerminal-".count)).lowercased() }
+        }
+        return nil
     }
 
     /// Working directories of every process whose controlling terminal is `tty`, deepest path first.

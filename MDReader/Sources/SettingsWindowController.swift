@@ -34,12 +34,12 @@ final class SettingsWindowController: NSWindowController {
         preset.placeholderString = "codex"
         command.placeholderString = "codex"
         preset.toolTip = "Teerminal preset slug: codex, claude, claude-box, sh…"
-        command.toolTip = "Run in the new iTerm2 / Terminal window after cd; empty for just a shell"
+        command.toolTip = "Harness to start: passed to teerminalctl tmux run, or run after cd in a new iTerm2 / Terminal window; empty for just a shell"
 
         let grid = NSGridView(views: [
             [label("Open new sessions in:"), launcher],
             [label("Teerminal preset:"), preset],
-            [label("iTerm2 / Terminal command:"), command],
+            [label("Command:"), command],
         ])
         grid.rowSpacing = 10
         grid.columnSpacing = 8
@@ -47,7 +47,7 @@ final class SettingsWindowController: NSWindowController {
         grid.translatesAutoresizingMaskIntoConstraints = false
 
         let hint = NSTextField(wrappingLabelWithString:
-            "Go to Terminal Session (⇧⌘T) first looks for a Teerminal, iTerm2 or Terminal session already working in the document's folder and brings it to the front. These settings apply when there is none.")
+            "Go to Terminal Session (⇧⌘T) first looks for a session already working in the document's folder: Teerminal persistent tmux sessions, Teerminal app sessions, iTerm2 and Terminal tabs, and brings it to the front. These settings apply when there is none. Persistent sessions survive closing the terminal and can be re-attached with teerminalctl.")
         hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         hint.textColor = .secondaryLabelColor
         hint.translatesAutoresizingMaskIntoConstraints = false
